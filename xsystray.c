@@ -7,23 +7,27 @@
 
 #include <X11/Xlib.h>
 
-extern char *optarg;
-
-void usage(void);
-int xsystray(int win_x, int win_y, int vertical_layout, int opposite_grow_dir,
-    int icon_size);
-Atom get_systray_selection_atom(Display *dpy);
+static void	 usage(void);
+static int	 xsystray(int, int, int, int, int);
+static Atom	 create_tray_atom(Display *);
+static int	 acquire_systray_selection(Display *, Atom, Window);
+static Window	 open_tray_window(Display *, int, int);
+static Window	 open_sel_owner(Display *, Window);
+static void	 notify_systray_appeared(Display *, Atom, Window);
+static int	 same_screen(Display *, Window);
+static void	 xembed_notify_embedded(Display *, Window, Window);
+static void	 update_geometry(Display *, Window);
+static void	 arrange_children(Display *, Window);
 
 int
 main(int argc, char **argv)
 {
-	int vertical_layout = 0;
-	int opposite_grow_dir = 0; /* in vertical layout: grow up;
-				  in horizontal layout: grow left;
-				 */
-	int icon_size = 22;
-	int x = 0, y = 0;
-	int ch;
+	extern char	*optarg;
+	int		 vertical_layout = 0;
+	int		 opposite_grow_dir = 0;
+	int		 icon_size = 22;
+	int		 x = 0, y = 0;
+	int		 ch;
 
 	while ((ch = getopt(argc, argv, "hvosp")) != -1) {
 		switch (ch) {
@@ -50,124 +54,192 @@ main(int argc, char **argv)
 		}
 	}
 
-	return xsystray(vertical_layout, opposite_grow_dir, icon_size);
-
-
+	return xsystray(x, y, vertical_layout, opposite_grow_dir, icon_size);
 }
 
-void
+static void
 usage(void)
 {
 	printf("usage: xsystray [-v] [-o] [-s <int>] [-p <int>x<int>]\n");
 }
 
-int
-xsystray(int tray_win_x, int tray_win_y, int vertical_layout,
-    int opposite_grow_dir, int icon_size)
+static int
+xsystray(int x, int y, int vertical_layout, int opposite_grow_dir,
+    int icon_size)
 {
-	Display *dpy;
-	Window tray_window, sel_window;
-	GC gc;
-	XEvent e;
-	Atom selection_atom, opcode_atom;
-
-	enum systray_opcodes {
+	Display	*display;
+	Atom	 tray_atom, opcode_atom;
+	Window	 tray, sel_owner, icon;
+	XEvent	 e;
+	long	 opcode;
+	enum opcodes {
 		SYSTEM_TRAY_REQUEST_DOCK,
 		SYSTEM_TRAY_BEGIN_MESSAGE,
 		SYSTEM_TRAY_CANCEL_MESSAGE,
 	};
 
-	dpy = XOpenDisplay(NULL);
-	if (dpy == NULL)
+	display = XOpenDisplay(NULL);
+	if (display == NULL)
 		errx(1, "failed to open X display");
 
-	selection_atom = get_selection_atom(dpy);
-	tray_window = open_tray_window(dpy, tray_win_x, tray_win_y);
-	if (acquire_systray_selection(Display *dpy, Atom selection_atom))
-		errx("failed to acquire ownership of systray selection");
+	tray_atom = create_tray_atom(display);
+	opcode_atom = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
 
-	sel_atom = XInternAtom(dpy, "_NET_SYSTEM_TRAY_S0", False);
-	if (XGetSelectionOwner(dpy, sel_atom) != None) {
-		fprintf(stderr, "systray selection ownership already taken\n");
-		exit(1);
-	}
+	tray = open_tray_window(display, x, y);
+	sel_owner = open_sel_owner(display, tray);
+	if (acquire_systray_selection(display, tray_atom, sel_owner))
+		errx(1, "failed to acquire ownership of systray selection");
+	notify_systray_appeared(display, tray_atom, sel_owner);
 
-	window = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0, 1, 1, 0,
-	    BlackPixel(dpy, DefaultScreen(dpy)),
-	    WhitePixel(dpy, DefaultScreen(dpy)));
-	XSelectInput(dpy, window, StructureNotifyMask | PropertyChangeMask);
-	XSetSelectionOwner(dpy, sel_atom, window, CurrentTime);
-
-	/* Notify existing systray icons that a WILD TRAY HAS APPEARED! */
-	memset(&e, 0, sizeof(e));
-	e.xclient.type = ClientMessage;
-	e.xclient.message_type = XInternAtom(dpy, "MANAGER", False);
-	e.xclient.display = dpy;
-	e.xclient.window = DefaultRootWindow(dpy);
-	e.xclient.format = 32;
-	e.xclient.data.l[0] = CurrentTime;
-	e.xclient.data.l[1] = sel_atom;
-	e.xclient.data.l[2] = window;
-	XSendEvent(dpy, DefaultRootWindow(dpy), False, StructureNotifyMask, &e);
-
-	opcode_atom = XInternAtom(dpy, "_NET_SYSTEM_TRAY_OPCODE", False);
 	for ( ;; ) {
-		XNextEvent(dpy, &e);
+		XNextEvent(display, &e);
 
-		if (e.type == ClientMessage
+		if (!(e.type == ClientMessage
 		    && e.xclient.message_type == opcode_atom
-		    && e.xclient.format == 32) {
-			switch (e.xclient.data.l[1]) {
-			case SYSTRAY_OPCODE_DOCK:
-				printf("received opcode dock, wid=%ld\n",
-				    e.xclient.data.l[2]);
-				break;
-			case SYSTRAY_OPCODE_BEGIN_MSG:
-				printf("received opcode begin msg\n");
-				break;
-			case SYSTRAY_OPCODE_CANCEL_MSG:
-				printf("received opcode cancel msg\n");
-				break;
-			}
+		    && e.xclient.format == 32))
+			continue;
+
+		opcode = e.xclient.data.l[1];
+
+		if (opcode == SYSTEM_TRAY_REQUEST_DOCK) {
+			icon = (Window) e.xclient.data.l[2];
+			if (!same_screen(display, icon))
+				continue;
+			XReparentWindow(display, icon, tray, 0, 0);
+			xembed_notify_embedded(display, sel_owner, icon);
+			arrange_children(display, tray);
+			update_geometry(display, tray);
+		} else if (opcode == SYSTEM_TRAY_BEGIN_MESSAGE) {
+		} else if (opcode == SYSTEM_TRAY_CANCEL_MESSAGE) {
 		}
 	}
 
-	XCloseDisplay(dpy);
+	XCloseDisplay(display);
 
 	return 0;
 }
 
-Atom
-get_systray_selection_atom(Display *dpy)
+static Atom
+create_tray_atom(Display *display)
 {
-	char buf[sizeof("_NET_SYSTEM_TRAY_Sxxx")];
-	size_t bufsize = sizeof(buf);
-	Atom atom;
+	char	 buf[sizeof("_NET_SYSTEM_TRAY_Sxxx")];
+	size_t	 bufsize = sizeof(buf);
+	Atom	 atom;
 
-	snprintf(buf, bufsize, "_NET_SYSTEM_TRAY_S%d", DefaultScreen(dpy));
-	atom = XInternAtom(dpy, buf, False);
+	snprintf(buf, bufsize, "_NET_SYSTEM_TRAY_S%d", DefaultScreen(display));
+	atom = XInternAtom(display, buf, False);
 
 	return atom;
 }
 
-int
-acquire_systray_selection(Display *dpy, Atom selection_atom)
+static int
+acquire_systray_selection(Display *display, Atom tray_atom, Window owner)
 {
-	if (XGetSelectionOwner(dpy, selection_atom) != None)
+	if (XGetSelectionOwner(display, tray_atom) != None)
 		return -1;
-	XSetSelectionOwner(dpy, selection_atom, 
-
+	XSetSelectionOwner(display, tray_atom, owner, CurrentTime);
+	return 0;
 }
 
-Window
-open_tray_window(Display *dpy, int x, int y)
+static Window
+open_tray_window(Display *display, int x, int y)
 {
-	Window window;
+	Window	 window;
 
-	window = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), x, y, 1, 1, 0,
-	    BlackPixel(dpy, DefaultScreen(dpy)),
-	    WhitePixel(dpy, DefaultScreen(dpy)));
-	XSelectInput(dpy, window, StructureNotifyMask | PropertyChangeMask);
+	window = XCreateSimpleWindow(display, DefaultRootWindow(display), x, y, 1, 1, 0,
+	    BlackPixel(display, DefaultScreen(display)),
+	    WhitePixel(display, DefaultScreen(display)));
+
+	XSelectInput(display, window,
+	    ButtonPressMask |
+	    ButtonReleaseMask |
+	    ExposureMask |
+	    PropertyChangeMask |
+	    SubstructureNotifyMask |
+	    SubstructureRedirectMask);
 
 	return window;
 }
+
+/* open the window that will own the systray selection */
+static Window
+open_sel_owner(Display *display, Window parent)
+{
+	Window	 window;
+
+	window = XCreateSimpleWindow(display, parent, 0, 0, 1, 1, 0,
+	    BlackPixel(display, DefaultScreen(display)),
+	    WhitePixel(display, DefaultScreen(display)));
+
+	XSelectInput(display, window, SubstructureNotifyMask);
+
+	return window;
+}
+
+static void
+notify_systray_appeared(Display *display, Atom tray_atom, Window sel_window)
+{
+	XEvent	 e;
+
+	memset(&e, 0, sizeof(e));
+
+	e.xclient.type = ClientMessage;
+	e.xclient.message_type = XInternAtom(display, "MANAGER", False);
+	e.xclient.window = DefaultRootWindow(display);
+	e.xclient.format = 32;
+	e.xclient.data.l[0] = CurrentTime;
+	e.xclient.data.l[1] = tray_atom;
+	e.xclient.data.l[2] = sel_window;
+
+	XSendEvent(display, DefaultRootWindow(display), False, StructureNotifyMask, &e);
+}
+
+static int
+same_screen(Display *display, Window window)
+{
+	XWindowAttributes	 attrs;
+
+	if (!XGetWindowAttributes(display, window, &attrs)) {
+		warnx("failed to get window attributes");
+		return 0;
+	}
+
+	if (DefaultScreen(display) == XScreenNumberOfScreen(attrs.screen))
+		return 1;
+	else
+		return 0;
+}
+
+static void
+xembed_notify_embedded(Display *display, Window sel_window, Window window)
+{
+	XEvent	 e;
+	enum {
+		XEMBED_EMBEDDED_NOTIFY,
+	};
+
+	memset(&e, 0, sizeof(e));
+
+	e.xclient.type = ClientMessage;
+	e.xclient.message_type = XInternAtom(display, "_XEMBED", False);
+	e.xclient.display = display;
+	e.xclient.window = window;
+	e.xclient.format = 32;
+	e.xclient.data.l[0] = CurrentTime;
+	e.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
+	e.xclient.data.l[2] = 0; /* protocol version */
+	e.xclient.data.l[3] = sel_window;
+
+	XSendEvent(display, window, False, NoEventMask, &e);
+}
+
+static void
+update_geometry(Display *display, Window tray)
+{
+}
+
+static void
+arrange_children(Display *display, Window tray)
+{
+}
+
