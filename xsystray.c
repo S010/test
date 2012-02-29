@@ -18,6 +18,7 @@ static int	 same_screen(Display *, Window);
 static void	 xembed_notify_embedded(Display *, Window, Window);
 static void	 update_geometry(Display *, Window);
 static void	 arrange_children(Display *, Window);
+static void	 show_tray(Display *, Window);
 
 int
 main(int argc, char **argv)
@@ -86,6 +87,7 @@ xsystray(int x, int y, int vertical_layout, int opposite_grow_dir,
 	opcode_atom = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
 
 	tray = open_tray_window(display, x, y);
+	//XMapWindow(display, tray);
 	sel_owner = open_sel_owner(display, tray);
 	if (acquire_systray_selection(display, tray_atom, sel_owner))
 		errx(1, "failed to acquire ownership of systray selection");
@@ -102,15 +104,26 @@ xsystray(int x, int y, int vertical_layout, int opposite_grow_dir,
 		opcode = e.xclient.data.l[1];
 
 		if (opcode == SYSTEM_TRAY_REQUEST_DOCK) {
+			printf("system_tray_request_dock\n");
 			icon = (Window) e.xclient.data.l[2];
 			if (!same_screen(display, icon))
 				continue;
 			XReparentWindow(display, icon, tray, 0, 0);
 			xembed_notify_embedded(display, sel_owner, icon);
+			/* TODO
+			 * resize to icon_size
+			 * map if unmapped
+			XMapWindow(display, icon);
+			*/
 			arrange_children(display, tray);
 			update_geometry(display, tray);
+			/* TODO
+			 * if we have >0 icons, map the tray window
+			 */
 		} else if (opcode == SYSTEM_TRAY_BEGIN_MESSAGE) {
+			printf("system_tray_begin_message\n");
 		} else if (opcode == SYSTEM_TRAY_CANCEL_MESSAGE) {
+			printf("system_tray_cancel_message\n");
 		}
 	}
 
@@ -146,7 +159,8 @@ open_tray_window(Display *display, int x, int y)
 {
 	Window	 window;
 
-	window = XCreateSimpleWindow(display, DefaultRootWindow(display), x, y, 1, 1, 0,
+	window = XCreateSimpleWindow(display, DefaultRootWindow(display),
+	    x, y, 40, 40, 0,
 	    BlackPixel(display, DefaultScreen(display)),
 	    WhitePixel(display, DefaultScreen(display)));
 
@@ -195,12 +209,12 @@ notify_systray_appeared(Display *display, Atom tray_atom, Window sel_window)
 }
 
 static int
-same_screen(Display *display, Window window)
+same_screen(Display *display, Window icon)
 {
 	XWindowAttributes	 attrs;
 
-	if (!XGetWindowAttributes(display, window, &attrs)) {
-		warnx("failed to get window attributes");
+	if (!XGetWindowAttributes(display, icon, &attrs)) {
+		warnx("failed to get icon window attributes");
 		return 0;
 	}
 
@@ -243,3 +257,12 @@ arrange_children(Display *display, Window tray)
 {
 }
 
+static void
+show_tray(Display *display, Window tray)
+{
+	XWindowAttributes	 attrs;
+
+	XGetWindowAttributes(display, tray, &attrs);
+	if (attrs.map_state & IsUnmapped)
+		XMapWindow(display, tray);
+}
