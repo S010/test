@@ -5,3 +5,6 @@ gicon: gicon.c
 
 xsystray: xsystray.c
 	$(CC) -o $@ $< `pkg-config --cflags --libs x11`
+
+clean:
+	rm -f *.o gicon xsystray
