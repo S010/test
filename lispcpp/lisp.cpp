@@ -62,6 +62,25 @@ class lisp {
                         return l;
                     } else
                         return {}; // empty list
+                } else if (m_v[0] == "car") {
+                    lisp v1(m_v[1].eval());
+                    if (v1.m_type == LISP) {
+                        if (v1.m_v.size() > 0)
+                            return v1.m_v[0];
+                        else
+                            return lisp();
+                    } else
+                        return lisp();
+                } else if (m_v[0] == "cdr") {
+                    lisp v1(m_v[1].eval());
+                    if (v1.m_type == LISP) {
+                        if (v1.m_v.size() > 0) {
+                            v1.m_v.erase(v1.m_v.begin());
+                            return v1;
+                        } else
+                            return lisp();
+                    } else
+                        return lisp();
                 } else
                     return *this;
             } else
