@@ -96,6 +96,7 @@ class lisp {
                         } else
                             return lisp();
                     } else
+                        return lisp();
                 } else if (m_v[0] == "eq") {
                     lisp a(m_v[1].eval());
                     lisp b(m_v[2].eval());
@@ -103,6 +104,18 @@ class lisp {
                         return lisp("t");
                     else
                         return lisp();
+                } else if (m_v[0] == "cons") {
+                    if (m_v.size() > 1) {
+                        lisp a(m_v[1].eval());
+                        lisp b(m_v[2].eval());
+                        if (a.m_type == ATOM && b.m_type == LISP) {
+                            b.m_v.insert(b.m_v.begin(), a);
+                            return b;
+                        } else
+                            return lisp();
+                    } else {
+                        return lisp();
+                    }
                 } else
                     return *this;
             } else
@@ -160,6 +173,8 @@ int main(int argc, char **argv) {
     test({ "eq", "aaa", "aaa" });
     test({ "eq", "aaa", lisp { "quote", lisp { "aaa", "bbb" } } });
     test({ "aaa", "bbb", "ccc" });
+    test({ "cdr", lisp { "aaa", "bbb", "ccc" } });
+    test({ "cons", "aaa", lisp { "123", "xxx", "ttt" } });
 
     return 0;
 }
