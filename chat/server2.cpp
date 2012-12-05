@@ -43,21 +43,6 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-class recvbuf {
-    public:
-        recvbuf() :
-            buf(nullptr),
-            bufsize(0)
-        {
-        }
-
-        void read(int s) {
-        }
-
-    private:
-        char *buf;
-        size_t bufsize;
-};
 
 static void server(int port) {
     int                  s, conn, n_events;
