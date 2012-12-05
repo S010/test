@@ -1,13 +1,13 @@
+#include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cstdarg>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <map>
-#include <algorithm>
 
 #include <unistd.h>
 #include <sys/types.h>
@@ -15,21 +15,20 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <err.h>
+#include <poll.h>
 
 #include <json.hpp>
 
 #define DEFAULT_PORT    1234
 
 static void     usage(const char *);
-static void     echohostnamed(int);
+static void     server(int);
 static void     daemonize(void);
 static int     dbgprintf(const char *, ...);
 
 int         dflag;
 
-int
-main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     extern char    *optarg;
     int         c, port = DEFAULT_PORT;
 
@@ -51,14 +50,12 @@ main(int argc, char **argv)
         }
     }
 
-    echohostnamed(port);
+    server(port);
 
     return 0;
 }
 
-static void
-usage(const char *argv0)
-{
+static void usage(const char *argv0) {
     const char *progname;
 
     progname = strrchr(argv0, '/');
@@ -71,15 +68,9 @@ usage(const char *argv0)
     printf("  Listens on the specified port (%d by default) and echos whenever someone connects.\n", DEFAULT_PORT);
 }
 
-static void
-echohostnamed(int port)
-{
-    int                  s, conn;
+static void server(int port) {
+    int                  s;
     struct sockaddr_in   sa;
-    char buf[8192];
-    const size_t bufsize = sizeof(buf);
-    ssize_t n_bytes;
-
 
     dbgprintf("trying to listen on port %d\n", port);
 
@@ -100,53 +91,30 @@ echohostnamed(int port)
         daemonize();
 
     for ( ;; ) {
-        dbgprintf("awaiting connection...\n");
+        dbgprintf("awaiting event...\n");
 
-        conn = accept(s, NULL, NULL);
-        if (conn == -1) {
-            warn("accept");
-            continue;
-        }
+        struct pollfd pfd[1];
 
-        dbgprintf("received connection\n");
+        pfd->fd = s;
+        pfd->events = POLLIN | POLLPRI | POLLOUT | POLLRDHUP;
 
-        std::ostringstream ostr("");
-        for ( ;; ) {
-            n_bytes = read(conn, buf, bufsize);
-            dbgprintf("read %d bytes\n", n_bytes);
-            if (n_bytes == -1) {
-                warn("read");
-                close(conn);
-                break;
-            }
-            if (n_bytes == 0) {
-                close(conn);
-                break;
-            }
-            char *p = (char *) memchr(buf, '\n', n_bytes);
-            if (p == NULL) {
-                ostr.write(buf, n_bytes);
-            } else {
-                ostr.write(buf, p - buf);
-                try {
-                    json::value val(json::parse(ostr.str()));
-                    dbgprintf("received json msg: %s\n", val.str().c_str());
-                } catch (const json::parse_error &e) {
-                    dbgprintf("received bogus json msg: %s\n", ostr.str().c_str());
-                }
-                ostr.str("");
-            }
-        }
+        int n_ready = poll(pfd, 1, -1);
 
-        dbgprintf("echoed the hostname\n");
+        if (n_ready == -1)
+            err(1, "poll");
 
-        close(conn);
+        std::clog << "revents for s:"
+                  << " POLLIN=" << ((pfd->revents & POLLIN) ? true : false)
+                  << " POLLPRI=" << ((pfd->revents & POLLPRI) ? true : false)
+                  << " POLLOUT=" << ((pfd->revents & POLLOUT) ? true : false)
+                  << " POLLRDHUP=" << ((pfd->revents & POLLRDHUP) ? true : false)
+                  << " POLLERR=" << ((pfd->revents & POLLERR) ? true : false)
+                  << " POLLHUP=" << ((pfd->revents & POLLHUP) ? true : false)
+                  << " POLLNVAL=" << ((pfd->revents & POLLNVAL) ? true : false);
     }
 }
 
-static int
-dbgprintf(const char *fmt, ...)
-{
+static int dbgprintf(const char *fmt, ...) {
     va_list     ap;
     int     n;
 
@@ -160,9 +128,7 @@ dbgprintf(const char *fmt, ...)
     return n;
 }
 
-static void
-daemonize(void)
-{
+static void daemonize(void) {
     pid_t     pid;
 
     fclose(stdin);
