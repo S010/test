@@ -1,13 +1,8 @@
 #include <algorithm>
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <iostream>
-#include <map>
 #include <sstream>
-#include <string>
 #include <vector>
+#include <unordered_map>
 
 #include <unistd.h>
 #include <sys/types.h>
@@ -18,22 +13,23 @@
 #include <poll.h>
 
 #include <json.hpp>
+#include "recvbuf.hpp"
 
-#define DEFAULT_PORT    1234
+static const int default_port = 1234;
+static const int default_poll_timeout = 50; // in milliseconds
 
-static void     server(int);
+static void server(int);
 
 int main(int argc, char **argv) {
     extern char    *optarg;
-    int         c, port = DEFAULT_PORT;
+    int             c, port = default_port;
 
-    while ((c = getopt(argc, argv, "hdp:")) != -1) {
+    while ((c = getopt(argc, argv, "p:")) != -1) {
         switch (c) {
         case 'p':
             port = atoi(optarg);
             break;
         default:
-            usage(*argv);
             return 1;
         }
     }
@@ -45,20 +41,14 @@ int main(int argc, char **argv) {
 
 
 static void server(int port) {
-    int                  s, conn, n_events;
-    struct sockaddr_in   sa;
-    char buf[8192];
-    const size_t bufsize = sizeof(buf);
-    ssize_t n_bytes;
-    std::map<int, std::ostringstream *> ostrs;
-    std::vector<struct pollfd> pollfds;
-
-    dbgprintf("trying to listen on port %d\n", port);
+    int                               s;
+    struct sockaddr_in                sa;
+    std::vector<struct pollfd>        pfds;
+    std::unordered_map<int, recvbuf>  rbufs;
 
     s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == -1)
         err(1, "socket");
-
 
     bzero(&sa, sizeof(sa));
     sa.sin_family = AF_INET;
@@ -69,101 +59,50 @@ static void server(int port) {
     if (listen(s, 0) == -1)
         err(1, "listen");
 
-    pollfds.push_back({ s, POLLIN });
+    pfds.push_back({ s, POLLIN });
 
+    std::clog << "entering poll loop..." << std::endl;
     for ( ;; ) {
-        dbgprintf("awaiting event...\n");
+        int npoll = poll(pfds.data(), pfds.size(), default_poll_timeout);
 
-        n_events = poll(pollfds.data(), pollfds.size(). 0);
-
-        if (n_events == -1)
+        if (npoll == -1)
             err(1, "poll");
+        else if (npoll == 0)
+            continue;
 
-        if (pollfds[0].revents & POLLIN) {
-            dbgprintf("received connection\n");
-            conn = accept(s, NULL, NULL);
-            if (conn == -1) {
-                warn("accept");
-                continue;
-            }
-        }
+        std::clog << npoll << " fds are ready" << std::endl;
 
-        pollfds.push_back({ conn, POLLIN });
-        ostrs.insert(std::make_pair(conn, new std::ostringstream()));
-
-        for (auto i = pollfds.begin(); i != pollfds.end(); ++i) {
-            if (i->revents & POLLIN) {
-                dbgprintf("fd %d has POLLIN\n", i->fd);
-                n_bytes = read(conn, buf, bufsize);
-                if (n_bytes == -1) {
-                    warn("read");
-                    continue;
-                }
-                std::ostringstream *ostrp = ostrs[i->fd];
-                char *p = (char *) memchr(buf, '\n', n_bytes);
-                if (p == NULL) {
-                    ostrp->write(buf, n_bytes);
-                } else {
-                    ostrp->write(buf, p - buf);
-                    try {
-                        json::value val(json::parse(ostrp->str()));
-                        dbgprintf("received json msg on conn fd %d: %s\n", i->fd, val.str().c_str());
-                    } catch (const json::parse_error &e) {
-                        dbgprintf("received bogus json msg: %s\n", ostrp->str().c_str());
-                    }
-                    ostrp->str("");
-                }
-            } else if (i->revents & (POLLERR | POLLHUP | POLLNVAL | POLLRDHUP)) {
+        for (auto i = pfds.begin() + 1; i != pfds.end(); ++i) {
+            if (i->revents & (POLLIN | POLLPRI)) {
+                recvbuf &rbuf = rbufs[i->fd];
+                rbuf.read(i->fd);
+                if (rbuf)
+                    std::cout << "got message: " << rbuf.str() << std::endl;
+            } else if (i->revents & (POLLERR | POLLHUP | POLLNVAL)) {
                 close(i->fd);
-                delete ostrs[i->fd];
-                ostrs.erase(i->fd);
+                rbufs.erase(i->fd);
             }
         }
         std::remove_if(
-            pollfds.begin(),
-            pollfds.end(),
-            [](const pollfd &pfd) {
-                return pfd.revents & (POLLERR | POLLHUP | POLLNVAL | POLLRDHUP);
+            pfds.begin() + 1,
+            pfds.end(),
+            [](pollfd &p) {
+                return p.revents & (POLLERR | POLLHUP | POLLNVAL);
             }
         );
 
-        dbgprintf("echoed the hostname\n");
+        if (pfds[0].revents & POLLIN) {
+            std::clog << "accepting a new connection" << std::endl;
 
-        close(conn);
+            int conn = accept(pfds[0].fd, NULL, NULL);
+            if (conn == -1) {
+                warn("accept");
+                return;
+            }
+            
+            pfds.push_back({ conn, POLLIN | POLLPRI });
+            rbufs.insert(std::make_pair(conn, recvbuf()));
+        }
     }
 }
 
-static int dbgprintf(const char *fmt, ...) {
-    va_list     ap;
-    int     n;
-
-    if (!dflag)
-        return 0;
-
-    va_start(ap, fmt);
-    n = vprintf(fmt, ap);
-    va_end(ap);
-
-    return n;
-}
-
-static void daemonize(void) {
-    pid_t     pid;
-
-    fclose(stdin);
-    fclose(stdout);
-    fclose(stderr);
-
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-
-    pid = fork();
-
-    if (pid == -1)
-        err(1, "fork");
-    else if (pid == 0)
-        return;
-    else
-        exit(0);
-}

@@ -2,6 +2,7 @@
 #define RECVBUF_HPP
 
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -37,7 +38,7 @@ class recvbuf {
                 if (!nlfound) 
                     nlfound = search_nl(readi, nbytes);
                 readi += nbytes;
-                if (nbytes < bufsize - readi)
+                if ((size_t) nbytes < bufsize - readi)
                     break;
             }
         }
