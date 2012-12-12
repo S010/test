@@ -2,9 +2,10 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
-#include <unordered_map>
+#include <map>
 
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,7 +17,7 @@
 #include "recvbuf.hpp"
 
 static const int default_port = 1234;
-static const int default_poll_timeout = 50; // in milliseconds
+static const int default_poll_timeout = 1; // in milliseconds
 
 static void server(int);
 
@@ -39,16 +40,19 @@ int main(int argc, char **argv) {
     return 0;
 }
 
+static void set_nonblock(int fd) {
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1)
+        err(1, "fcntl");
+}
 
-static void server(int port) {
-    int                               s;
-    struct sockaddr_in                sa;
-    std::vector<struct pollfd>        pfds;
-    std::unordered_map<int, recvbuf>  rbufs;
+static int listen_port(int port) {
+    int                     s;
+    struct sockaddr_in      sa;
 
     s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == -1)
         err(1, "socket");
+    //set_nonblock(s);
 
     bzero(&sa, sizeof(sa));
     sa.sin_family = AF_INET;
@@ -59,50 +63,75 @@ static void server(int port) {
     if (listen(s, 0) == -1)
         err(1, "listen");
 
+    return s;
+}
+
+static void server(int port) {
+    int                     s;
+    std::vector<pollfd>     pfds;
+    std::map<int, recvbuf>  rbufs;
+
+    s = listen_port(port);
+
     pfds.push_back({ s, POLLIN });
 
-    std::clog << "entering poll loop..." << std::endl;
     for ( ;; ) {
-        int npoll = poll(pfds.data(), pfds.size(), default_poll_timeout);
+        auto npoll = poll(pfds.data(), pfds.size(), -1);
 
         if (npoll == -1)
             err(1, "poll");
         else if (npoll == 0)
             continue;
 
-        std::clog << npoll << " fds are ready" << std::endl;
+        std::clog << "----" << std::endl
+                  << "npoll=" << npoll << std::endl
+                  << "pfds.size()=" << pfds.size() << std::endl;
 
-        for (auto i = pfds.begin() + 1; i != pfds.end(); ++i) {
-            if (i->revents & (POLLIN | POLLPRI)) {
-                recvbuf &rbuf = rbufs[i->fd];
-                rbuf.read(i->fd);
-                if (rbuf)
+        for (auto &i : pfds) {
+            if (i.fd == s)
+                continue;
+
+            if (i.revents & POLLIN) {
+                recvbuf &rbuf = rbufs[i.fd];
+                if (rbuf.read(i.fd) == 0) { // Connection closed by remote host
+                    i.revents |= POLLHUP;
+                    close(i.fd);
+                    rbufs.erase(i.fd);
+                } else if (rbuf)
                     std::cout << "got message: " << rbuf.str() << std::endl;
-            } else if (i->revents & (POLLERR | POLLHUP | POLLNVAL)) {
-                close(i->fd);
-                rbufs.erase(i->fd);
+            } else if (i.revents != 0) {
+                std::clog << "closing fd " << i.fd << std::endl;
+                close(i.fd);
+                rbufs.erase(i.fd);
             }
         }
-        std::remove_if(
-            pfds.begin() + 1,
-            pfds.end(),
-            [](pollfd &p) {
-                return p.revents & (POLLERR | POLLHUP | POLLNVAL);
-            }
+        pfds.erase(
+            std::remove_if(
+                pfds.begin(),
+                pfds.end(),
+                [](const pollfd &pfd) {
+                    return pfd.revents != 0 && !(pfd.revents & POLLIN);
+                }
+            ),
+            pfds.end()
         );
 
-        if (pfds[0].revents & POLLIN) {
-            std::clog << "accepting a new connection" << std::endl;
-
-            int conn = accept(pfds[0].fd, NULL, NULL);
+        // Accept the new connection if any
+        auto &pfd = pfds[0];
+        if (pfd.revents & (POLLIN | POLLPRI)) {
+            auto conn = accept(pfd.fd, nullptr, nullptr);
             if (conn == -1) {
                 warn("accept");
-                return;
+                continue;
             }
-            
+            //set_nonblock(conn);
+
+            std::clog << "accepted new connection" << std::endl;
+
             pfds.push_back({ conn, POLLIN | POLLPRI });
             rbufs.insert(std::make_pair(conn, recvbuf()));
         }
     }
 }
+
 

@@ -11,7 +11,7 @@
 
 class recvbuf {
     public:
-        recvbuf(size_t growsize = 8) :
+        recvbuf(size_t growsize = 8192) :
             buf(nullptr),
             nlfound(false),
             bufsize(0),
@@ -26,21 +26,32 @@ class recvbuf {
             std::clog << __func__ << std::endl;
         }
 
-        void read(int s) {
+        size_t read(int s) {
             std::clog << __func__ << std::endl;
+            size_t sum = 0;
             for ( ;; ) {
                 if (readi >= bufsize)
                     grow_buf();
 
-                ssize_t nbytes = ::read(s, buf + readi, bufsize - readi);
-                if (nbytes == -1)
-                    throw std::runtime_error("read failed!");
-                if (!nlfound) 
-                    nlfound = search_nl(readi, nbytes);
-                readi += nbytes;
-                if ((size_t) nbytes < bufsize - readi)
-                    break;
+                size_t readsize = bufsize - readi;
+                std::clog << " trying to read " << readsize << " bytes" << std::endl;
+                ssize_t nbytes = ::read(s, buf + readi, readsize);
+                if (nbytes == -1) {
+                    if (errno == EAGAIN)
+                        break;
+                    else
+                        throw std::runtime_error("read failed!");
+                } else {
+                    if (!nlfound)
+                        nlfound = search_nl(readi, nbytes);
+                    readi += nbytes;
+                    sum += (size_t) nbytes;
+                    if ((size_t) nbytes < readsize)
+                        break;
+                }
             }
+
+            return sum;
         }
 
         operator bool () {
