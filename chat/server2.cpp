@@ -66,6 +66,17 @@ static int listen_port(int port) {
     return s;
 }
 
+static void repeat(int s, const std::string &msg, const std::vector<pollfd> &pfds) {
+    for (auto i = pfds.begin() + 1; i != pfds.end(); ++i) {
+        if (i->fd == s)
+            continue;
+        std::clog << "repeating msg to " << i->fd << std::endl;
+        auto nbytes = write(i->fd, msg.c_str(), msg.size());
+        std::clog << " wrote " << nbytes << std::endl;
+        nbytes = write(i->fd, "\n", 1);
+    }
+}
+
 static void server(int port) {
     int                     s;
     std::vector<pollfd>     pfds;
@@ -97,8 +108,11 @@ static void server(int port) {
                     i.revents |= POLLHUP;
                     close(i.fd);
                     rbufs.erase(i.fd);
-                } else if (rbuf)
-                    std::cout << "got message: " << rbuf.str() << std::endl;
+                } else if (rbuf) {
+                    const std::string msg(rbuf.str());
+                    std::clog << "got message from " << i.fd << ": " << msg << std::endl;
+                    repeat(i.fd, msg, pfds);
+                }
             } else if (i.revents != 0) {
                 std::clog << "closing fd " << i.fd << std::endl;
                 close(i.fd);

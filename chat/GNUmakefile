@@ -12,5 +12,8 @@ server2: server2.o
 test: test.o
 	$(CXX) -o $@ $(CXXFLAGS) $(LDFLAGS) $^ /home/slava/src/misc/json/{json,parse}.o
 
+client: client.o
+	$(CXX) -o $@ $(CXXFLAGS) $(LDFLAGS) $^
+
 clean:
-	rm -f *.o server server2 test
+	rm -f *.o server server2 test client
