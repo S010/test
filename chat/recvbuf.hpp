@@ -11,13 +11,14 @@
 
 class recvbuf {
     public:
-        recvbuf(size_t growsize = 8192) :
+        recvbuf(size_t growsize = 8192, const std::string &sep) :
             buf(nullptr),
             nlfound(false),
             bufsize(0),
             nl(0),
             readi(0),
-            growsize(growsize)
+            growsize(growsize),
+            msg_sep(msg_sep)
         {
             std::clog << __func__ << std::endl;
         }
@@ -26,7 +27,7 @@ class recvbuf {
             std::clog << __func__ << std::endl;
         }
 
-        size_t read(int s) {
+        size_t read(int fd) {
             std::clog << __func__ << std::endl;
             size_t sum = 0;
             for ( ;; ) {
@@ -35,15 +36,15 @@ class recvbuf {
 
                 size_t readsize = bufsize - readi;
                 std::clog << " trying to read " << readsize << " bytes" << std::endl;
-                ssize_t nbytes = ::read(s, buf + readi, readsize);
+                ssize_t nbytes = ::read(fd, buf + readi, readsize);
                 if (nbytes == -1) {
                     if (errno == EAGAIN)
                         break;
                     else
-                        throw std::runtime_error("read failed!");
+                        throw std::runtime_error("read(2) failed!");
                 } else {
                     if (!nlfound)
-                        nlfound = search_nl(readi, nbytes);
+                        nlfound = find_sep(readi, nbytes);
                     readi += nbytes;
                     sum += (size_t) nbytes;
                     if ((size_t) nbytes < readsize)
@@ -66,17 +67,20 @@ class recvbuf {
             std::string s(buf, buf + nl);
             discard_before(nl);
             if (readi > 0)
-                nlfound = search_nl(0, readi - 1);
+                nlfound = find_sep(0, readi - 1);
             else
                 nlfound = false;
             return s;
         }
 
     private:
-        char *buf;
-        bool nlfound;
-        size_t bufsize, nl, readi;
-        size_t growsize;
+        char              *buf;
+        bool               nlfound;
+        size_t             bufsize;
+        size_t             nl;
+        size_t             readi;
+        const size_t       growsize;
+        const std::string  sep;
 
         void grow_buf() {
             std::clog << __func__ << std::endl;
@@ -99,7 +103,7 @@ class recvbuf {
             resize_buf((readi / growsize + 1) * growsize);
         }
 
-        bool search_nl(size_t start, size_t size) {
+        bool find_sep(size_t start, size_t size) {
             char *p = (char *) memchr(buf + start, '\n', size);
             if (p == nullptr) {
                 return false;
