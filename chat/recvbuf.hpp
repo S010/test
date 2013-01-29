@@ -11,41 +11,37 @@
 
 class recvbuf {
     public:
-        recvbuf(size_t growsize = 8192, const std::string &sep) :
+        recvbuf(char marker = '\n') :
             buf(nullptr),
-            nlfound(false),
+            markerfound(false),
             bufsize(0),
-            nl(0),
-            readi(0),
-            growsize(growsize),
-            msg_sep(msg_sep)
+            markerpos(0),
+            readpos(0),
+            marker(marker)
         {
-            std::clog << __func__ << std::endl;
         }
 
         ~recvbuf() {
-            std::clog << __func__ << std::endl;
+            free(buf);
         }
 
         size_t read(int fd) {
-            std::clog << __func__ << std::endl;
             size_t sum = 0;
             for ( ;; ) {
-                if (readi >= bufsize)
-                    grow_buf();
+                if (readpos >= bufsize)
+                    grow();
 
-                size_t readsize = bufsize - readi;
-                std::clog << " trying to read " << readsize << " bytes" << std::endl;
-                ssize_t nbytes = ::read(fd, buf + readi, readsize);
+                size_t readsize = bufsize - readpos;
+                ssize_t nbytes = ::read(fd, buf + readpos, readsize);
                 if (nbytes == -1) {
                     if (errno == EAGAIN)
                         break;
                     else
                         throw std::runtime_error("read(2) failed!");
                 } else {
-                    if (!nlfound)
-                        nlfound = find_sep(readi, nbytes);
-                    readi += nbytes;
+                    if (!markerfound)
+                        markerfound = find(readpos, nbytes);
+                    readpos += nbytes;
                     sum += (size_t) nbytes;
                     if ((size_t) nbytes < readsize)
                         break;
@@ -55,40 +51,36 @@ class recvbuf {
             return sum;
         }
 
-        operator bool () {
-            std::clog << __func__ << std::endl;
-            return nlfound;
+        bool hasmsg() {
+            return markerfound;
         }
 
-        std::string str() {
-            std::clog << __func__ << std::endl;
-            if (!nlfound)
+        std::string popmsg() {
+            if (!markerfound)
                 return "";
-            std::string s(buf, buf + nl);
-            discard_before(nl);
-            if (readi > 0)
-                nlfound = find_sep(0, readi - 1);
+            std::string s(buf, buf + markerpos);
+            discard(markerpos);
+            if (readpos > 0)
+                markerfound = find(0, readpos - 1);
             else
-                nlfound = false;
+                markerfound = false;
             return s;
         }
 
     private:
-        char              *buf;
-        bool               nlfound;
-        size_t             bufsize;
-        size_t             nl;
-        size_t             readi;
-        const size_t       growsize;
-        const std::string  sep;
+        char                *buf;
+        bool                 markerfound;
+        size_t               bufsize;
+        size_t               markerpos;
+        size_t               readpos;
+        static const size_t  growsize = 8192;
+        const char           marker;
 
-        void grow_buf() {
-            std::clog << __func__ << std::endl;
-            resize_buf(bufsize + growsize);
+        void grow() {
+            resize(bufsize + growsize);
         }
 
-        void resize_buf(size_t size) {
-            std::clog << __func__ << std::endl;
+        void resize(size_t size) {
             char *p = (char *) realloc(buf, size);
             if (p == nullptr)
                 throw std::bad_alloc();
@@ -96,23 +88,21 @@ class recvbuf {
             buf = p;
         }
 
-        void discard_before(size_t pos) {
-            std::clog << __func__ << std::endl;
-            memmove(buf, buf + pos + 1, readi - pos - 1);
-            readi -= (pos + 1);
-            resize_buf((readi / growsize + 1) * growsize);
+        void discard(size_t pos) {
+            memmove(buf, buf + pos + 1, readpos - pos - 1);
+            readpos -= (pos + 1);
+            resize((readpos / growsize + 1) * growsize);
         }
 
-        bool find_sep(size_t start, size_t size) {
-            char *p = (char *) memchr(buf + start, '\n', size);
+        bool find(size_t start, size_t size) {
+            char *p = (char *) memchr(buf + start, marker, size);
             if (p == nullptr) {
                 return false;
             } else {
-                nl = p - buf;
+                markerpos = p - buf;
                 return true;
             }
         }
 };
-
 
 #endif

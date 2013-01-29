@@ -1,0 +1,5 @@
+Some record.
+This file is separated by double percent signs on their own line.
+%%
+Second record.
+It should appear separated from the first one.
