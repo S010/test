@@ -1,0 +1,3 @@
+C: { "request" : "login", "app" : "cs.bc.mb", "username" : "jdoe", "password" : "2391231232", "seq" : "12345" }
+S: { "response" : "login", "successful" : true }
+   { "response" : "login", "successful" : false, "errmsg" : "Invalid username and/or password" }
