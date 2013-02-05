@@ -19,11 +19,8 @@ int main(int argc, char **argv) {
         recvbuf buf;
 
         buf.read(fd);
-        /*
-        while (buf)
-            std::cout << "msg: " << buf.str() << std::endl;
-        */
-        std::cout << "str: " << buf.str() << std::endl;
+        while (buf.has_msg())
+            std::cout << "str: " << buf.pop_msg() << std::endl;
         close(fd);
     }
 

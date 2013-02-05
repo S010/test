@@ -93,22 +93,20 @@ static void client(const std::string &ipstr, int port, const std::string &userna
 
         if (pfds[0].revents & POLLIN) {
             rbufs[0].read(STDIN_FILENO);
-            if (rbufs[0]) {
-                const std::string msg(rbufs[0].str());
+            while (rbufs[0].has_msg()) {
+                const std::string msg(rbufs[0].pop_msg());
                 auto nwrote = write(pfds[1].fd, msg.c_str(), msg.size());
                 if (nwrote == -1)
                     err(1, "write");
                 nwrote = write(pfds[1].fd, "\n", 1);
                 if (nwrote == -1)
                     err(1, "write");
-            } 
+            }
         }
         if (pfds[1].revents & POLLIN) {
             rbufs[1].read(pfds[1].fd);
-            if (rbufs[1]) {
-                const std::string msg(rbufs[1].str());
-                std::cout << msg << std::endl;
-            }
+            while (rbufs[1].has_msg())
+                std::cout << rbufs[1].pop_msg() << std::endl;
         }
     }
 }
