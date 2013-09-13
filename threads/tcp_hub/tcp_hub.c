@@ -91,7 +91,7 @@ tcp_hub(int port)
 	pfds[0].fd = s;
 	pfds[0].events = POLLIN;
 	for ( ;; ) {
-		if (poll(pfds, n_pfds, INFTIM) == -1)
+		if (poll(pfds, n_pfds, -1) == -1)
 			err(1, "poll");
 		if (pfds[0].revents & POLLIN) { /* received a new connection */
 			conn = accept(s, (struct sockaddr *) &sa_stor, &sa_stor_size);
