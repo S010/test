@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define PASTE(x) #x
+
 static int aflag;
 static int tflag;
 
@@ -48,7 +50,7 @@ main(int argc, char **argv)
             break;
         case 'h':
         default:
-            printf("usage: " PROGNAME " [-a] [-t] [msg]\n"
+            printf("usage: " PASTE(PROGNAME) " [-a] [-t] [msg]\n"
                    "Deliberately corrupts the stack to cause a crash.\n"
                    "    -a -- call abort(3)\n"
                    "    -t -- run the crashing code in a separate thread\n");
