@@ -2,7 +2,7 @@ PROGNAME=crash
 
 CFLAGS+=-O0
 CFLAGS+=-DPROGNAME=$(PROGNAME)
-CFLAGS+=-g
+#CFLAGS+=-g
 LDFLAGS+=-lpthread
 
 all: $(PROGNAME)
