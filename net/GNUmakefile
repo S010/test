@@ -1,13 +1,13 @@
-CXXFLAGS += -g -Wall -std=c++11 -I/home/slava/src/misc/json
-LDFLAGS += -L/home/slava/src/misc/json
+CXXFLAGS += -g -Wall -std=c++11 -I../../libeljson/include
+LDFLAGS += -L../../libeljson/lib
 
 all: server client
 
 server: server.o
-	$(CXX) -o $@ $(CXXFLAGS) $(LDFLAGS) $^ /home/slava/src/misc/json/{json,parse}.o
+	$(CXX) $(LDFLAGS) -leljson -o $@ $<
 
 client: client.o
-	$(CXX) -o $@ $(CXXFLAGS) $(LDFLAGS) $^
+	$(CXX) $(LDFLAGS) -o $@ $<
 
 clean:
 	rm -f *.o server client
