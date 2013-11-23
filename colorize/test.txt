@@ -1,0 +1,5 @@
+ordinary line
+program: error: open failed
+another ordinary line
+program: warning: conf file not found, creating defaults-filled one
+yet another ordinary line
