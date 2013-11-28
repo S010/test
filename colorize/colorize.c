@@ -6,28 +6,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
 
-static const struct {
+static const struct color {
 	const char	*name;
-	int		 code;
-} fgcolors[] = {
-	{ "black",  30 },
-	{ "red",    31 },
-	{ "green",  32 },
-	{ "yellow", 33 },
-	{ "blue",   34 },
-	{ "purple", 35 },
-	{ "cyan",   36 },
-	{ "white",  37 },
-}, bgcolors[] = {
-	{ "black",  40 },
-	{ "red",    41 },
-	{ "green",  42 },
-	{ "yellow", 44 },
-	{ "blue",   44 },
-	{ "purple", 45 },
-	{ "cyan",   46 },
-	{ "white",  47 },
+	int		 fg;
+	int		 bg;
+} colors[] = {
+	{ "none",   -1, -1 },
+	{ "black",  30, 40 },
+	{ "red",    31, 41 },
+	{ "green",  32, 42 },
+	{ "yellow", 33, 44 },
+	{ "blue",   34, 44 },
+	{ "purple", 35, 45 },
+	{ "cyan",   36, 46 },
+	{ "white",  37, 47 },
+	{ NULL }
 };
 
 struct rule {
@@ -58,10 +53,128 @@ xrealloc(void *p, size_t size)
 	return p;
 }
 
+static char *
+strip(char *s)
+{
+	char	*p;
+
+	while (isspace(*s))
+		++s;
+	p = s + strlen(s) - 1;
+	while (p >= s && isspace(*p))
+		*p = '\0';
+	return s;
+}
+
+static int
+parsere(char *buf, struct rule *rule)
+{
+	char	*end;
+	int	 flags = 0;
+
+	buf = strip(buf);
+	if (*buf++ != '/')
+		return 0;
+	end = strrchr(buf, '/');
+	if (end == NULL)
+		return 0;
+	*end = '\0';
+	for (++end; *end != '\0'; ++end)
+		if (*end == 'i')
+			flags |= REG_ICASE;
+	if (regcomp(&rule->re, buf, flags) != 0)
+		return 0;
+	return 1;
+}
+
+static int
+parsecolors(char *buf, struct rule *rule)
+{
+	char			*p;
+	char			*next;
+	const struct color	*cp;
+
+	buf = strip(buf);
+	next = buf;
+	while ((p = strsep(&next, ",")) != NULL) {
+		p = strip(p);
+		if (!strcmp(p, "bold")) {
+			rule->bold = 1;
+			continue;
+		}
+		for (cp = colors; cp->name != NULL; ++cp)
+			if (!strcmp(p, cp->name))
+				break;
+		if (cp->name == NULL)
+			return 0;
+		if (rule->fg == 0)
+			rule->fg = cp->fg;
+		else if (rule->bg == 0)
+			rule->bg = cp->bg;
+		else /* color specified more than twice */
+			return 0;
+	}
+	if (!rule->fg && !rule->bg && !rule->bold)
+		return 0;
+	return 1;
+}
+
+static int
+parseline(char *buf, struct rule **rulep)
+{
+	struct rule	 rule;
+	char		*p;
+	char		*delim;
+
+	buf = strip(buf);
+	delim = strrchr(buf, ' ');
+	if (delim == NULL)
+		return 0;
+	*delim = '\0';
+	memset(&rule, 0, sizeof rule);
+	if (!parsere(buf, &rule))
+		return 0;
+	if (!parsecolors(delim + 1, &rule))
+		return 0;
+	*rulep = xmalloc(sizeof rule);
+	**rulep = rule;
+	return 1;
+}
+
 static struct rule *
 parse(const char *path)
 {
-	return NULL;
+	FILE		*fp;
+	char		*buf = NULL;
+	size_t		 bufsize = 0;
+	size_t		 lineno = 0;
+	struct rule	*rules = NULL;
+	struct rule	*tail = NULL;
+	struct rule	*rule;
+
+	fp = fopen(path, "r");
+	if (fp == NULL)
+		err(1, "fopen: %s", path);
+
+	while (getline(&buf, &bufsize, fp) != -1) {
+		++lineno;
+		if (!parseline(buf, &rule))
+			errx(1, "%s: failed to parse line %d", path, lineno);
+		if (rule == NULL)
+			continue;
+		if (tail == NULL)
+			rules = tail = rule;
+		else {
+			tail->next = rule;
+			tail = rule;
+		}
+
+	}
+	if (!feof(fp))
+		err(1, "getline: %s", path);
+	free(buf);
+
+	return rules;
 }
 
 static void
@@ -178,13 +291,22 @@ usage(void)
 	printf("usage: colorize <script>\n");
 }
 
+static void
+freerule(struct rule *rule)
+{
+	if (rule == NULL)
+		return;
+	freerule(rule->next);
+	regfree(&rule->re);
+	free(rule);
+}
+
 int
 main(int argc, char **argv)
 {
 	int		 ch;
 	extern int	 optind;
-
-	struct rule	 rule;
+	struct rule	*rules;
 
 	while ((ch = getopt(argc, argv, "h")) != -1) {
 		switch (ch) {
@@ -199,10 +321,13 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	memset(&rule, 0, sizeof rule);
-	regcomp(&rule.re, "error[^[:space:]]*", REG_ICASE);
-	rule.fg = 31;
-	colorize(&rule, stdin, stdout);
+	if (argc == 0) {
+		usage();
+		exit(EXIT_FAILURE);
+	}
+
+	rules = parse(*argv);
+	colorize(rules, stdin, stdout);
 
 	exit(EXIT_SUCCESS);
 }
