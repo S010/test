@@ -58,10 +58,78 @@ xrealloc(void *p, size_t size)
 	return p;
 }
 
+static void
+parseline(const char *s)
+{
+	const char	*p;
+	enum {
+		NONE,
+		COMMENT,
+		REGEXP,
+		FGCOLOR,
+		BGCOLOR,
+		BOLD,
+	} state = NONE;
+	int regexpbegin, regexpend;
+	int commentbegin;
+	int fgcolorbegin, fgcolorend;
+	int bgcolorbegin, bgcolorend;
+	int boldbegin, boldend;
+
+	p = s;
+	while (*p) {
+		switch (state) {
+		case NONE:
+			switch (*p) {
+			case '/':
+				state = REGEXP;
+				regexpbegin = p - s;
+				break;
+			case '#':
+				state = COMMENT;
+				goto out;
+			case ' ':
+			case '\t':
+				break;
+			default:
+				goto errout;
+			}
+			++p;
+			break;
+		case REGEXP:
+			if (*p == '/' && *(p+1) != 'i') {
+				++p;
+				state = NONE;
+				regexpend = p - s;
+			}
+			break;
+		}
+	}
+out:
+
+errout:
+	errx(1, "parsing error at %lu", p - s);
+}
+
 static struct rule *
 parse(const char *path)
 {
-	return NULL;
+	/*
+	 * read line
+	 * tokenize
+	 * convert tokens to rule
+	 */
+	FILE		*fp;
+	char		*buf = NULL;
+	size_t		 bufsize = 0;
+	char		*p;
+	struct rule	*rules;
+
+	fp = fopen(path, "r");
+	if (fp == NULL)
+		err(1, "fopen: %s", path);
+	while (getline(&buf, &bufsize, fp) != -1) {
+	}
 }
 
 static void

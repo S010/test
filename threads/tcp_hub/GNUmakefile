@@ -1,6 +1,6 @@
 MISC_DIR=$(HOME)/Source/misc
 
-CC=gcc
+CC=clang
 CFLAGS+=-Wall
 CFLAGS+=-std=c99
 CFLAGS+=-I$(MISC_DIR)/clib/include
