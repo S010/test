@@ -32,8 +32,10 @@ static SDL_Window	*window;
 static SDL_Renderer	*renderer;
 
 static void
-applyvec(int *x, int *y, struct vec *v)
+move(int *x, int *y, struct vec *v, Uint32 ticks)
 {
+	v->y += (double) ticks * (gconstant / 1000.0);
+
 	*x += v->x;
 	if (*x < 0.0) {
 		*x = 0.0;
@@ -59,7 +61,7 @@ mainloop(void)
 	SDL_Event	 event;
 	Uint32		 clock[2];
 	Uint32		 ticks;
-	struct vec	 throw; // ball throw vector
+	struct vec	 throw = { -1.0, -1.0 }; // ball throw vector
 	const double	 throwdiv = 10.0;
 	struct ball	 ball = { WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, 8, { 0, 0 } };
 	SDL_Rect	 rc;
@@ -97,8 +99,7 @@ mainloop(void)
 		ticks = clock[1] - clock[0];
 		if (ticks > 10) {
 			clock[0] = clock[1];
-			ball.vec.y += (double) ticks * (gconstant / 1000.0);
-			applyvec(&ball.x, &ball.y, &ball.vec);
+			move(&ball.x, &ball.y, &ball.vec, ticks);
 		}
 
 		SDL_RenderClear(renderer);
