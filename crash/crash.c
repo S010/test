@@ -12,7 +12,7 @@ static int tflag;
 static void
 test(const char *msg)
 {
-    char buf[16] = "msg: ";
+    char buf[5 + 22] = "msg: ";
     size_t len;
 
     len = strlen(buf);
@@ -34,11 +34,11 @@ start_test_thread(void *p)
 }
 
 int
-main(int argc, char **argv)
+main(int argc, char **argv, char **envp)
 {
     int ch;
     pthread_t thread;
-    const char *msg = "This is a very long message -- it won't fit in the buffer!";
+    const char *msg = "ALL YOUR STACK ARE CORRUPTED BY US";
 
     while ((ch = getopt(argc, argv, "at")) != -1) {
         switch (ch) {
