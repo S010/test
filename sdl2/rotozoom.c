@@ -2,6 +2,7 @@
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdbool.h>
 #include <math.h>
 
@@ -17,8 +18,10 @@ static SDL_Renderer	*renderer;
 static void
 rotozoom(SDL_Surface *src, SDL_Surface *dst, double angle, double scale)
 {
-	int	 Ox; // origin
-	int	 Oy;
+	int	 srcOx; // origin
+	int	 srcOy;
+	int	 dstOx;
+	int	 dstOy;
 	int	 x;
 	int	 y;
 	int	 xp; // x prime
@@ -28,32 +31,34 @@ rotozoom(SDL_Surface *src, SDL_Surface *dst, double angle, double scale)
 	double	 c;
 	double	 s;
 	int	 bpp; // bytes per pixel
-	SDL_Rect	 rect;
 
-	rect.x = 0;
-	rect.y = 0;
-	rect.w = dst->w;
-	rect.h = dst->h;
-	SDL_FillRect(dst, &rect, 0);
+	SDL_FillRect(dst, NULL, 0);
 
-	c = cos(angle);
-	s = sin(angle);
+	c = cos(-angle);
+	s = sin(-angle);
 
-	Ox = src->w / 2;
-	Oy = src->h / 2;
+	srcOx = src->w / 2;
+	srcOy = src->h / 2;
+	dstOx = dst->w / 2;
+	dstOy = dst->h / 2;
 
+	if (src->format->BytesPerPixel != dst->format->BytesPerPixel)
+		errx(EXIT_FAILURE, "rotozoom: BPP is not the same for src and dst");
 	bpp = src->format->BytesPerPixel;
 
-	for (y = 0; y < src->h; ++y) {
-		for (x = 0; x < src->w; ++x) {
-			srcpx = src->pixels + y * src->w * bpp + x * bpp;
+	if (scale == 0.0)
+		scale = 0.001;
+
+	for (y = 0; y < dst->h; ++y) {
+		for (x = 0; x < dst->w; ++x) {
+			dstpx = dst->pixels + y * dst->pitch + x * bpp;
 			// rotate around Ox,Oy and scale
-			xp = ((double) (x - Ox) * c + (double) (y - Oy) * -s) * scale + Ox;
-			yp = ((double) (x - Ox) * s + (double) (y - Oy) * c) * scale + Oy;
-			// can't allow writing beyond the pixel array
-			if (xp < 0 || yp < 0 || xp >= dst->w || yp >= dst->h)
+			xp = ((double) (x - dstOx) * c + (double) (y - dstOy) * -s) / scale + srcOx;
+			yp = ((double) (x - dstOx) * s + (double) (y - dstOy) * c) / scale + srcOy;
+			// can't allow reading beyond the pixel array
+			if (xp < 0 || yp < 0 || xp >= src->w || yp >= src->h)
 				continue;
-			dstpx = dst->pixels + yp * src->w * bpp + xp * bpp;
+			srcpx = src->pixels + yp * src->pitch + xp * bpp;
 			memcpy(dstpx, srcpx, bpp);
 		}
 	}
@@ -71,6 +76,26 @@ loadimg(const char *path)
 	return img;
 }
 
+// Create a surface suitable for rotation of s.
+SDL_Surface *
+createrotosurf(SDL_Surface *s)
+{
+	SDL_Surface	*srot;
+	int		 side;
+
+	side = sqrt(s->w * s->w + s->h * s->h);
+	srot = SDL_CreateRGBSurface(
+	    0,
+	    side,
+	    side,
+	    s->format->BitsPerPixel,
+	    s->format->Rmask,
+	    s->format->Gmask,
+	    s->format->Bmask,
+	    s->format->Amask);
+	return srot;
+}
+
 static void
 mainloop(void)
 {
@@ -82,17 +107,10 @@ mainloop(void)
 	double		 scalestep = 0.1;
 	double		 angle = 0.0; // rotation angle of the image in radians
 	const double	 anglestep = (2.0*PI) / 36.0; // 10 degrees
+	SDL_Rect	 rect;
 
 	origimg = loadimg("spaceship.bmp");
-	img = SDL_CreateRGBSurface(
-	    0,
-	    origimg->w,
-	    origimg->h,
-	    origimg->format->BitsPerPixel,
-	    origimg->format->Rmask,
-	    origimg->format->Gmask,
-	    origimg->format->Bmask,
-	    origimg->format->Amask);
+	img = createrotosurf(origimg);
 
 	while (SDL_WaitEvent(&event)) {
 		switch (event.type) {
@@ -128,7 +146,11 @@ mainloop(void)
 		tex = SDL_CreateTextureFromSurface(renderer, img);
 
 		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, tex, NULL, NULL);
+		if (SDL_QueryTexture(tex, NULL, NULL, &rect.w, &rect.h) != 0)
+			errx(EXIT_FAILURE, "SDL_QueryTexture: %s", SDL_GetError());
+		rect.x = (WINDOW_WIDTH - rect.w) / 2;
+		rect.y = (WINDOW_HEIGHT - rect.h) / 2;
+		SDL_RenderCopy(renderer, tex, NULL, &rect);
 		SDL_RenderPresent(renderer);
 	}
 	errx(EXIT_FAILURE, "SDL_WaitEvent: %s", SDL_GetError());
