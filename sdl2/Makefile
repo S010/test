@@ -1,9 +1,10 @@
 CFLAGS != sdl2-config --cflags
 CFLAGS += -Wall
 CFLAGS += -std=c99
+CFLAGS += -O2
 LDFLAGS != sdl2-config --libs
 
-all: init hello cursor inertia freefall surface rotozoom
+all: init hello cursor inertia freefall surface rotozoom filter line
 
 init: init.o
 	${CC} ${LDFLAGS} -o init init.o
@@ -26,5 +27,11 @@ surface: surface.o
 rotozoom: rotozoom.o
 	${CC} ${LDFLAGS} -lm -o rotozoom rotozoom.o
 
+filter: filter.o
+	${CC} ${LDFLAGS} -lm -o filter filter.o
+
+line: line.o
+	${CC} ${LDFLAGS} -lm -o line line.o
+
 clean:
-	rm -f *.o init hello cursor inertia freefall surface rotozoom
+	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line
