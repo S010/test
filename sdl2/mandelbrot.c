@@ -7,8 +7,8 @@
 
 #include <SDL2/SDL.h>
 
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
+const int	 WINDOW_WIDTH = 800;
+const int	 WINDOW_HEIGHT = 600;
 
 static SDL_Window	*window;
 static SDL_Renderer	*renderer;
@@ -38,14 +38,43 @@ mainloop(void)
 	int		 y;
 	float		 i;
 	float		 j;
+	float		 range = 2.0;
+	float		 rangestep = 0.4;
 	float complex	 c;
+	const float	 step = 0.2;
+	float		 ishift = 0.0;
+	float		 jshift = 0.0;
 
 	while (SDL_WaitEvent(&event)) {
 		switch (event.type) {
 		case SDL_QUIT:
 			return;
 		case SDL_WINDOWEVENT:
-		case SDL_SYSWMEVENT:
+			if (event.window.type == SDL_WINDOWEVENT_EXPOSED)
+				break;
+			continue;
+		case SDL_KEYDOWN:
+			switch (event.key.keysym.sym) {
+			case SDLK_LEFT:
+				ishift += step;
+				break;
+			case SDLK_RIGHT:
+				ishift -= step;
+				break;
+			case SDLK_UP:
+				jshift -= step;
+				break;
+			case SDLK_DOWN:
+				jshift += step;
+				break;
+			case SDLK_EQUALS:
+			case SDLK_PLUS:
+				range -= rangestep;
+				break;
+			case SDLK_MINUS:
+				range += rangestep;
+				break;
+			}
 			break;
 		default:
 			continue;
@@ -54,8 +83,8 @@ mainloop(void)
 		SDL_RenderClear(renderer);
 		for (y = 0; y < WINDOW_HEIGHT; ++y) {
 			for (x = 0; x < WINDOW_WIDTH; ++x) {
-				i = (float) x * 2.0 / (float) WINDOW_WIDTH - 1.0;
-				j = (float) y * 2.0 / (float) WINDOW_HEIGHT - 1.0;
+				i = (float) x * range / (float) WINDOW_WIDTH - (range / 2.0) + ishift;
+				j = (float) y * range / (float) WINDOW_HEIGHT - (range / 2.0) + jshift;
 				c = i + j*I;
 				if (ismandelbrot(c))
 					SDL_RenderDrawPoint(renderer, x, y);
@@ -70,7 +99,7 @@ static void
 initvideo(void)
 {
 	window = SDL_CreateWindow(
-	    "Hello",
+	    "Mandelbrot Set",
 	    SDL_WINDOWPOS_UNDEFINED,
 	    SDL_WINDOWPOS_UNDEFINED,
 	    WINDOW_WIDTH,
@@ -100,17 +129,6 @@ main(int argc, char **argv)
 		errx(EXIT_FAILURE, "SDL_Init: %s", SDL_GetError());
 	atexit(SDL_Quit);
 	atexit(cleanup);
-
-#ifdef __STDC_IEC_559_COMPLEX__
-	printf("_STDC_IEC_559_COMPLEX__ defined\n");
-#else
-	printf("_STDC_IEC_559_COMPLEX__ not defined\n");
-#endif
-#ifdef __STDC_NO_COMPLEX__
-	printf("__STDC_NO_COMPLEX__ defined\n");
-#else
-	printf("__STDC_NO_COMPLEX__ not defined\n");
-#endif
 
 	initvideo();
 	mainloop();
