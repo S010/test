@@ -1,10 +1,11 @@
-CFLAGS != sdl2-config --cflags
+CFLAGS = $(shell sdl2-config --cflags)
+CFLAGS += -I/usr/local/include
 CFLAGS += -Wall
 CFLAGS += -std=c99
 CFLAGS += -O2
-LDFLAGS != sdl2-config --libs
+LDFLAGS = $(shell sdl2-config --libs)
 
-all: init hello cursor inertia freefall surface rotozoom filter line
+all: init hello cursor inertia freefall surface rotozoom filter line mandelbrot
 
 init: init.o
 	${CC} ${LDFLAGS} -o init init.o
@@ -33,5 +34,8 @@ filter: filter.o
 line: line.o
 	${CC} ${LDFLAGS} -lm -o line line.o
 
+mandelbrot: mandelbrot.o
+	${CC} ${LDFLAGS} -lm -o mandelbrot mandelbrot.o
+
 clean:
-	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line
+	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line mandelbrot
