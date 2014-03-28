@@ -39,9 +39,6 @@ int ipow(int x, int n) {
 
 static void genpalette(void)
 {
-	return;
-
-
 	SDL_Color	 col;
 	double		 l;
 	double		 lmax;
@@ -53,10 +50,9 @@ static void genpalette(void)
 	for (int i = 0; i < iterations; ++i) {
 		l = log(1.0 + ((double) i * (lrange / (double) iterations)));
 		col.r = 255.0 * (l / lmax);
-		//col.g = (double) i * (255.0 / (double) iterations);
+		col.g = (double) i * (255.0 / (double) iterations);
 		//col.g = 255.0 * (1.0 / ((i > 0) ? (double) i : 1.0));
-		col.g = 0;
-		col.b = 0;
+		col.b = 255 - col.r;
 		col.a = SDL_ALPHA_OPAQUE;
 		palette[i] = col;
 	}
@@ -194,6 +190,7 @@ start:
 				c = i + j*I;
 				m = ismandelbrot(c);
 				if (!m.belongs) {
+					/*
 					color = (256.0 * 3.0) * m.slope;
 					col.r = 255 - color % 256;
 					color -= col.r;
@@ -202,7 +199,8 @@ start:
 					col.b = 255 - color % 256;
 					color -= col.b;
 					col.a = SDL_ALPHA_OPAQUE;
-					// col = palette[m.niter];
+					*/
+					col = palette[m.niter];
 					SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a);
 					SDL_RenderDrawPoint(renderer, x, y);
 				}
