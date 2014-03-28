@@ -20,8 +20,8 @@ struct mandelbrot {
 	double slope;
 };
 
-static const int min_iterations = 150;
-static int iterations = min_iterations;
+#define MIN_ITERATIONS 30
+static int iterations = MIN_ITERATIONS;
 
 double	 ishift;
 double	 jshift;
@@ -99,7 +99,6 @@ mainloop(void)
 	float complex		 c;
 	double			 step = 0.1;
 	bool			 output_params = false;
-	unsigned int		 color;
 	SDL_Color		 col;
 
 	if (ishift == 0.0) {
@@ -148,7 +147,7 @@ mainloop(void)
 				step *= 2.0;
 				break;
 			case SDLK_8:
-				iterations = min_iterations;
+				iterations = MIN_ITERATIONS;
 				genpalette();
 				printf("%d iterations\n", iterations);
 				break;
@@ -158,7 +157,7 @@ mainloop(void)
 				printf("%d iterations\n", iterations);
 				break;
 			case SDLK_9:
-				if (iterations > min_iterations) {
+				if (iterations > MIN_ITERATIONS) {
 					iterations /= 2;
 					genpalette();
 					printf("%d iterations\n", iterations);
