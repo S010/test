@@ -16,12 +16,6 @@ const int	 WINDOW_HEIGHT = 768;
 static SDL_Window	*window;
 static SDL_Renderer	*renderer;
 
-struct mandelbrot {
-	bool belongs;
-	int niter;
-	double slope;
-};
-
 static const int min_iterations = 150;
 static int iterations = min_iterations;
 
@@ -32,18 +26,10 @@ double	 yrange;
 
 static SDL_Color* palette;
 
-int ipow(int x, int n) {
-	int result = x;
-	while (--n)
-		result *= x;
-	return result;
-}
-
 static void genpalette(void)
 {
 	SDL_Color	 col;
 	const int	 palettesize = iterations;
-	double		 l;
 	double		 lmax;
 	double		 lrange = 10000.0;
 	double		 t;
@@ -53,29 +39,6 @@ static void genpalette(void)
 
 	palette = realloc(palette, sizeof(*palette) * palettesize);
 	for (int i = 0; i < palettesize; ++i) {
-		l = log(1.0 + ((double) i * (lrange / (double) palettesize)));
-		/*
-		col.r = 255.0 * (l / lmax);
-		col.g = (double) i * (255.0 / (double) palettesize);
-		col.b = 255 - col.r;
-		*/
-		//col.r = col.g = col.b = (double) i * (255.0 / (double) palettesize);
-		/*
-		t = (sin((double) i * ((Pi*2) / (double) palettesize)) + 1.0) / 2.0;
-		col.r = 255.0 * t;
-		t = (sin(((double) i * ((Pi*2) / (double) palettesize)) + Pi/3.0) + 1.0) / 2.0;
-		col.g = 255.0 * t;
-		t = (cos((double) i * ((Pi*2) / (double) palettesize)) + 1.0) / 2.0;
-		col.b = 255.0 * t;
-		*/
-		/*
-		t = (sin((double) i * ((Pi) / (double) palettesize)) + 1.0) / 2.0;
-		col.r = 255.0 * t;
-		t = (sin(((double) i * ((Pi) / (double) palettesize)) + Pi/7.0) + 1.0) / 2.0;
-		col.g = 255.0 * t;
-		t = (cos((double) i * ((Pi) / (double) palettesize)) + 1.0) / 2.0;
-		col.b = 255.0 * t;
-		*/
 		t = (cos((double) i * ((Pi * mul) / (double) palettesize)) + 1.0) / 2.0;
 		col.r = 255.0 * t;
 		t = (sin(((double) i * ((Pi * mul) / (double) palettesize)) + Pi/3.0) + 1.0) / 2.0;
@@ -85,33 +48,6 @@ static void genpalette(void)
 		col.a = SDL_ALPHA_OPAQUE;
 		palette[i] = col;
 	}
-}
-
-static struct mandelbrot
-ismandelbrot(float complex c)
-{
-	static double		 limit = 0.0;
-	float complex		 z;
-	int			 i;
-	struct mandelbrot	 m;
-
-	if (limit == 0.0)
-		limit = sqrt(5);
-
-	m.belongs = true;
-	m.slope = 0.0;
-	m.niter = 0;
-	z = c;
-	for (i = 0; i < iterations; ++i) {
-		z = z * z + c;
-		if (cabsf(z) > limit) {
-			m.belongs = false;
-			m.niter = i;
-			m.slope = (double) i / (double) iterations;
-			break;
-		}
-	}
-	return m;
 }
 
 static inline double
@@ -136,7 +72,6 @@ lerp_color(SDL_Color *c1, SDL_Color *c2, double t)
 static void
 mainloop(void)
 {
-	struct mandelbrot	 m;
 	SDL_Event		 event;
 	int			 Px;
 	int			 Py;
@@ -146,11 +81,8 @@ mainloop(void)
 	double			 y;
 	const double		 ratio = (double) WINDOW_WIDTH / (double) WINDOW_HEIGHT;
 	const double		 baserange = 3.0;
-	float complex		 c;
 	double			 step = 0.1;
 	bool			 output_params = false;
-	unsigned int		 color;
-	SDL_Color		 col;
 
 	if (ishift == 0.0) {
 		xrange = ratio * baserange;
@@ -219,13 +151,6 @@ mainloop(void)
 				printf("%lf %lf %lf %lf\n", ishift, jshift, xrange, yrange);
 			output_params = false;
 			break;
-		case SDL_MOUSEBUTTONUP:
-			x0 = (double) event.button.x * xrange / (double) WINDOW_WIDTH - (xrange / 2.0) + ishift;
-			y0 = (double) event.button.y * yrange / (double) WINDOW_HEIGHT - (yrange / 2.0) + jshift;
-			c = x0 + y0*I;
-			m = ismandelbrot(c);
-			printf("belongs=%s\nniter=%d\n", m.belongs ? "true" : "false", m.niter);
-			continue;
 		default:
 			continue;
 		}
@@ -263,16 +188,6 @@ start:
 
 				SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a);
 				SDL_RenderDrawPoint(renderer, Px, Py);
-
-				/*
-				c = i + j*I;
-				m = ismandelbrot(c);
-				if (!m.belongs) {
-					col = palette[m.niter];
-					SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a);
-					SDL_RenderDrawPoint(renderer, x0, y0);
-				}
-				*/
 			}
 		}
 		SDL_RenderPresent(renderer);
