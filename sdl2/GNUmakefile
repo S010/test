@@ -3,9 +3,10 @@ CFLAGS += -I/usr/local/include
 CFLAGS += -Wall
 CFLAGS += -std=c99
 CFLAGS += -O2
-LDFLAGS = $(shell sdl2-config --libs)
+CFLAGS += -I/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk/System/Library/Frameworks/OpenGL.framework/Headers
+LDFLAGS = $(shell sdl2-config --libs) -framework OpenGL
 
-all: init hello cursor inertia freefall surface rotozoom filter line mandelbrot
+all: init hello cursor inertia freefall surface rotozoom filter line mandelbrot mandelbrot2 glline glcolors
 
 init: init.o
 	${CC} ${LDFLAGS} -o init init.o
@@ -37,5 +38,14 @@ line: line.o
 mandelbrot: mandelbrot.o
 	${CC} ${LDFLAGS} -lm -o mandelbrot mandelbrot.o
 
+mandelbrot2: mandelbrot2.o
+	${CC} ${LDFLAGS} -lm -o mandelbrot2 mandelbrot2.o
+
+glline: glline.o
+	${CC} ${LDFLAGS} -lm -o glline glline.o
+
+glcolors: glcolors.o
+	${CC} ${LDFLAGS} -lm -o glcolors glcolors.o
+
 clean:
-	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line mandelbrot
+	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line mandelbrot mandelbrot2 glline glcolors
