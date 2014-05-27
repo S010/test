@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2014 Sviatoslav Chagaev <sviatoslav.chagaev@gmail.com>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -47,50 +63,52 @@ load(const char *path, unsigned char **bufp, size_t *sizep)
 	*sizep = st.st_size;
 }
 
-static void
-zip(const unsigned char *buf, size_t size)
+static size_t
+zip(const unsigned char *buf, size_t size, unsigned char *outbuf)
 {
-	const size_t	 numinbits = size * CHAR_BIT;
-	size_t		 pos;
+	const size_t	 nbits = size * CHAR_BIT;
+	size_t		 readp;
+	size_t		 writep = 0;
 	size_t		 len;
 	size_t		 runlen;
 	unsigned char	 bit;
 
-#define BIT_AT(pos) (buf[(pos) / 8] & (1 << ((pos) % CHAR_BIT)))
+#define BIT_AT(i) (buf[(i) / CHAR_BIT] & (1 << ((i) % CHAR_BIT)))
+#define PUT_BIT(b)										\
+	do {											\
+		if (outbuf != NULL)								\
+			outbuf[writep / CHAR_BIT] |= (b ? 1 : 0) << (writep % CHAR_BIT);	\
+		++writep;									\
+	} while (0)
 
-	for (pos = 0; pos < numinbits; /*empty*/) {
-		bit = BIT_AT(pos); 
+	for (readp = 0; readp < nbits; /*empty*/) {
+		bit = BIT_AT(readp);
 		len = 1;
-		while (pos + len < numinbits) {
-			if ((bit && BIT_AT(pos + len)) || (!bit && !BIT_AT(pos + len)))
+		while (readp + len < nbits) {
+			if ((bit && BIT_AT(readp + len)) || (!bit && !BIT_AT(readp + len)))
 				++len;
 			else
 				break;
 		}
-		//printf("%d %d: ", bit ? 1 : 0, (int) len);
-		pos += len--;
+		readp += len--;
 		do {
+			PUT_BIT(bit);
 			runlen = ~0;
 			while (runlen > len)
 				runlen >>= 1;
 			len -= runlen;
-			putchar(bit ? '1' : '0');
 			while (runlen > 0) {
-				putchar('1');
+				PUT_BIT(1);
 				runlen >>= 1;
 			}
-			putchar('0');
+			PUT_BIT(0);
 		} while (len > 0);
-		putchar('\n');
-		/*
-		putchar(bit ? '1' : '0');
-		while (len > 0) {
-		}
-		putchar('0');
-		*/
 	}
 
+	return writep;
+
 #undef BIT_AT
+#undef PUT_BIT
 }
 
 int
@@ -104,7 +122,7 @@ main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 	load(argv[1], &buf, &size);
-	zip(buf, size);
+	printf("\n%d bits\n", (int) zip(buf, size, NULL));
 	free(buf);
 
 	return EXIT_SUCCESS;
