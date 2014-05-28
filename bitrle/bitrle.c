@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _XOPEN_SOURCE 600
+
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -25,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 
 typedef size_t runlen_t;
 
@@ -97,6 +100,7 @@ store(const char *path, unsigned char *buf, size_t size, size_t nbits)
 	xwrite(fd, buf, size);
 	close(fd);
 }
+
 
 #define BIT_AT(i) (buf[(i) / CHAR_BIT] & (1 << ((i) % CHAR_BIT)))
 #define PUT_BIT(b)										\
@@ -175,9 +179,28 @@ bitrle_decode(const unsigned char *buf, size_t nbits, unsigned char *outbuf)
 #undef BIT_AT
 #undef PUT_BIT
 
+static struct timespec
+timediff(struct timespec *t1, struct timespec *t2)
+{
+	struct timespec	 dt;
+
+	dt = *t2;
+	if (dt.tv_nsec < t1->tv_nsec) {
+		--dt.tv_sec;
+		dt.tv_nsec += 1000000000;
+	}
+	dt.tv_sec -= t1->tv_sec;
+	dt.tv_nsec -= t1->tv_nsec;
+
+	return dt;
+}
+
 static void
 encode(const char *inpath, const char *outpath)
 {
+	struct timespec	 t1;
+	struct timespec	 t2;
+	struct timespec	 dt;
 	unsigned char	*inbuf;
 	size_t		 insize;
 	unsigned char	*outbuf;
@@ -188,7 +211,14 @@ encode(const char *inpath, const char *outpath)
 	nbits = bitrle_encode(inbuf, insize, NULL);
 	outsize = nbits / 8 + ((nbits % 8) ? 1 : 0);
 	outbuf = xmalloc(outsize);
+	if (clock_gettime(CLOCK_MONOTONIC, &t1) == -1)
+		err(EXIT_FAILURE, "clock_gettime");
 	bitrle_encode(inbuf, insize, outbuf);
+	if (clock_gettime(CLOCK_MONOTONIC, &t2) == -1)
+		err(EXIT_FAILURE, "clock_gettime");
+	dt = timediff(&t1, &t2);
+	if (vflag)
+		printf("encoded in %lds %ldns\n", (long) dt.tv_sec, (long) dt.tv_nsec);
 	store(outpath, outbuf, outsize, nbits);
 	free(inbuf);
 	free(outbuf);
@@ -197,6 +227,9 @@ encode(const char *inpath, const char *outpath)
 static void
 decode(const char *inpath, const char *outpath)
 {
+	struct timespec	 t1;
+	struct timespec	 t2;
+	struct timespec	 dt;
 	unsigned char	*inbuf;
 	size_t		 insize;
 	unsigned char	*outbuf;
@@ -211,7 +244,14 @@ decode(const char *inpath, const char *outpath)
 	nbitsout = bitrle_decode(inbuf + sizeof(nbitsin), nbitsin, NULL);
 	outsize = nbitsout / CHAR_BIT + ((nbitsout % CHAR_BIT) ? 1 : 0);
 	outbuf = xmalloc(outsize);
+	if (clock_gettime(CLOCK_MONOTONIC, &t1) == -1)
+		err(EXIT_FAILURE, "clock_gettime");
 	bitrle_decode(inbuf + sizeof(nbitsin), nbitsin, outbuf);
+	if (clock_gettime(CLOCK_MONOTONIC, &t2) == -1)
+		err(EXIT_FAILURE, "clock_gettime");
+	dt = timediff(&t1, &t2);
+	if (vflag)
+		printf("decoded in %lds %ldns\n", (long) dt.tv_sec, (long) dt.tv_nsec);
 	store(outpath, outbuf, outsize, 0);
 	free(inbuf);
 	free(outbuf);
