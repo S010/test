@@ -1,10 +1,13 @@
-CC = gcc
+CC = clang
 CFLAGS = -Wall -std=c99 -O2
 
-all: brle
+all: bin/ brle
 
-brle: main.o brle.o
-	$(CC) -o $@ $^
+bin/:
+	mkdir -p $@
+
+brle: src/main.o src/brle.o
+	$(CC) -o bin/$@ $^
 
 clean:
-	rm -f *.o brle
+	rm -rf bin/ src/*.o
