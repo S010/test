@@ -1,11 +1,10 @@
 CC = gcc
 CFLAGS = -Wall -std=c99 -O2
-LDFLAGS = -g
 
-all: bitrle
+all: brle
 
-bitrle: bitrle.o
+brle: main.o brle.o
 	$(CC) -o $@ $^
 
 clean:
-	rm -f *.o bitrle
+	rm -f *.o brle

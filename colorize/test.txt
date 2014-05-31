@@ -1,5 +1,0 @@
-ordinary line
-another ordinary line
-program: warning: conf file not found, creating defaults-filled one
-program: error: open failed
-yet another ordinary line

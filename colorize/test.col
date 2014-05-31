@@ -1,4 +1,0 @@
-/^.*error.*$/i red
-/error/i none,green,bold
-/warning/i yellow,bold
-/ing/ none
