@@ -3,7 +3,7 @@ Bit level run-length codec.
 Input			Len	Output		Len. Diff.
 0			1	00		+1
 00			2	010		+1
-000			3	010010		+3
+000			3	01000		+2
 0000			4	0110		0
 00000			5	011000		+1
 000000			6	0110010		+1
