@@ -1,4 +1,4 @@
-Bit level run-length codec.
+brle:
 
 Input			Len	Output		Len. Diff.
 0			1	00		+1

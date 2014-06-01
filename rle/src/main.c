@@ -14,8 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-//#define _XOPEN_SOURCE 600
-
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -29,20 +27,20 @@
 #include <string.h>
 #include <limits.h>
 #include <time.h>
-#include "brle.h"
+#include "codec.h"
 
 static int	 dflag;
 static int	 vflag;
 
 static void
-usage(void)
+usage(const char *progname)
 {
-	puts("usage: brle [-d] <infile> <outfile>\n"
+	printf("usage: %s [-d] <infile> <outfile>\n"
 	    "  -d -- decode\n"
-	    "  -v -- be verbose");
+	    "  -v -- be verbose", progname);
 }
 
-static void *
+void *
 xmalloc(size_t size)
 {
 	void	*p;
@@ -53,8 +51,8 @@ xmalloc(size_t size)
 	return p;
 }
 
-static ssize_t
-xwrite(int fd, void *buf, size_t size)
+ssize_t
+xwrite(int fd, const void *buf, size_t size)
 {
 	ssize_t	 n;
 
@@ -66,7 +64,7 @@ xwrite(int fd, void *buf, size_t size)
 	return n;
 }
 
-static void
+void
 load(const char *path, unsigned char **bufp, size_t *sizep)
 {
 	struct stat	 st;
@@ -87,16 +85,14 @@ load(const char *path, unsigned char **bufp, size_t *sizep)
 	*sizep = st.st_size;
 }
 
-static void
-store(const char *path, unsigned char *buf, size_t size, size_t nbits)
+void
+store(const char *path, const void *buf, size_t size, int flags)
 {
-	int	 fd;
+	int			 fd;
 
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+	fd = open(path, O_WRONLY | flags, S_IRUSR | S_IWUSR);
 	if (fd == -1)
 		err(1, "open %s", path);
-	if (nbits > 0)
-		xwrite(fd, &nbits, sizeof nbits);
 	xwrite(fd, buf, size);
 	close(fd);
 }
@@ -130,63 +126,12 @@ stopwatch(void)
 	return dt;
 }
 
-static void
-encode(const char *inpath, const char *outpath)
-{
-	struct timeval	 dt;
-	unsigned char	*inbuf;
-	size_t		 insize;
-	unsigned char	*outbuf;
-	size_t		 outsize;
-	size_t		 nbits;
-
-	load(inpath, &inbuf, &insize);
-	nbits = brle_encode(inbuf, insize, NULL);
-	outsize = nbits / 8 + ((nbits % 8) ? 1 : 0);
-	outbuf = xmalloc(outsize);
-	(void) stopwatch();
-	brle_encode(inbuf, insize, outbuf);
-	dt = stopwatch();
-	if (vflag)
-		printf("%ld.%06ld\n", (long) dt.tv_sec, (long) dt.tv_usec);
-	store(outpath, outbuf, outsize, nbits);
-	free(inbuf);
-	free(outbuf);
-}
-
-static void
-decode(const char *inpath, const char *outpath)
-{
-	struct timeval	 dt;
-	unsigned char	*inbuf;
-	size_t		 insize;
-	unsigned char	*outbuf;
-	size_t		 outsize;
-	size_t		 nbitsin;
-	size_t		 nbitsout;
-	size_t		 i;
-
-	load(inpath, &inbuf, &insize);
-	for (i = 0, nbitsin = 0; i < sizeof(nbitsin); ++i)
-		nbitsin |= inbuf[i] << (CHAR_BIT * i);
-	nbitsout = brle_decode(inbuf + sizeof(nbitsin), nbitsin, NULL);
-	outsize = nbitsout / CHAR_BIT + ((nbitsout % CHAR_BIT) ? 1 : 0);
-	outbuf = xmalloc(outsize);
-	(void) stopwatch();
-	brle_decode(inbuf + sizeof(nbitsin), nbitsin, outbuf);
-	dt = stopwatch();
-	if (vflag)
-		printf("%ld.%06ld\n", (long) dt.tv_sec, (long) dt.tv_usec);
-	store(outpath, outbuf, outsize, 0);
-	free(inbuf);
-	free(outbuf);
-}
-
 int
 main(int argc, char **argv)
 {
 	int		 ch;
 	extern int	 optind;
+	struct timeval	 dt;
 
 	while ((ch = getopt(argc, argv, "dvh")) != -1) {
 		switch (ch) {
@@ -194,27 +139,31 @@ main(int argc, char **argv)
 			++dflag;
 			break;
 		case 'h':
-			usage();
+			usage(argv[0]);
 			return EXIT_SUCCESS;
 		case 'v':
 			++vflag;
 			break;
 		default:
-			usage();
+			usage(argv[0]);
 			return EXIT_FAILURE;
 		}
 	}
 	argc -= optind;
 	argv += optind;
 	if (argc < 2) {
-		usage();
+		usage(argv[0]);
 		return EXIT_FAILURE;
 	}
 
+	(void) stopwatch();
 	if (dflag)
 		decode(argv[0], argv[1]);
 	else
 		encode(argv[0], argv[1]);
+	dt = stopwatch();
+	if (vflag)
+		printf("%ld.%06ld\n", (long) dt.tv_sec, (long) dt.tv_usec);
 
 	return EXIT_SUCCESS;
 }
