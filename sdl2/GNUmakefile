@@ -13,7 +13,7 @@ CFLAGS += $(shell sdl2-config --cflags)
 LDFLAGS = $(shell sdl2-config --libs)
 LDFLAGS += -L/usr/X11R6/lib -lGL
 
-all: init hello cursor inertia freefall surface rotozoom filter line mandelbrot glcolors
+all: init hello cursor inertia freefall surface rotozoom line mandelbrot glcolors
 
 init: init.o
 	${CC} ${LDFLAGS} -o init init.o
@@ -36,9 +36,6 @@ surface: surface.o
 rotozoom: rotozoom.o
 	${CC} ${LDFLAGS} -lm -o rotozoom rotozoom.o
 
-filter: filter.o
-	${CC} ${LDFLAGS} -lm -o filter filter.o
-
 line: line.o
 	${CC} ${LDFLAGS} -lm -o line line.o
 
@@ -49,4 +46,4 @@ glcolors: glcolors.o
 	${CC} ${LDFLAGS} -lm -o glcolors glcolors.o
 
 clean:
-	rm -f *.o init hello cursor inertia freefall surface rotozoom filter line mandelbrot glcolors
+	rm -f *.o init hello cursor inertia freefall surface rotozoom line mandelbrot glcolors
