@@ -61,15 +61,10 @@ mainloop(struct point *line)
 
 		currentTime = (float) SDL_GetTicks() / 1000.0;
 
-		/*
-		glClearColor(0.5, 0.2, 0.0, 1.0);
-		glClear(GL_COLOR_BUFFER_BIT);
-		*/
 		GLfloat color[] = { sin(currentTime) * 0.5 + 0.5, cos(currentTime) * 0.5 + 0.5, 0.0, 1.0 };
 		glClearBufferfv(GL_COLOR, 0, color);
 
-
-		//SDL_GL_SwapWindow(window);
+		SDL_GL_SwapWindow(window);
 
 		SDL_Delay(1);
 	}
