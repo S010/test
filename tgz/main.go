@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 )
 
 type ChanBuf struct {
@@ -51,11 +52,38 @@ func process(cb *ChanBuf) {
 	}
 }
 
+func tgz(path string, tw *io.Writer) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+
+	if tw == nil {
+		tw = ChanBuf{make(chan []byte), nil}
+		/*
+		start a go routine which reads from chanbuf and 
+		dumps into specified file
+		*/
+	}
+
+	if fi.IsDir() {
+		fmt.Printf("%s является директорией\n", path)
+	} else {
+		fmt.Printf("%s не является директорией\n", path)
+	}
+}
+
 func main() {
+	/*
 	fmt.Println("hello, world")
 
 	cb := ChanBuf{make(chan []byte), nil}
 	go process(&cb)
 	cb.ch <- []byte("abc")
 	close(cb.ch)
+	*/
+
+	for _, arg := range os.Args[1:] {
+		tgz(arg, nil)
+	}
 }
