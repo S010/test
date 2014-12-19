@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	LISTEN_ADDR = ":8080"
 	ROOT_DIR = "."
 )
 
@@ -79,7 +80,7 @@ func (s HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var s HTTPServer
-	err := http.ListenAndServe(":8080", s)
+	err := http.ListenAndServe(LISTEN_ADDR, s)
 	panic(err)
 }
 
