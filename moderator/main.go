@@ -16,7 +16,7 @@ const START_UPVOTES = 0 // number of upvotes a newly created item has
 var db *sql.DB
 
 type Item struct {
-	Id int
+	Id int64
 	Score int
 	Summary string
 	Details string
@@ -60,11 +60,6 @@ func initDb() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// XXX
-	addItem("one", "one")
-	addItem("two", "two")
-	addItem("three", "three")
 }
 
 func addItem(summary string, details string) int64 {
@@ -73,7 +68,8 @@ func addItem(summary string, details string) int64 {
 	if err != nil {
 		log.Fatal(err)
 	}
-	r.LastInsertedId()
+	id, _ := r.LastInsertId()
+	return id
 }
 
 func serveModerator(w http.ResponseWriter, r *http.Request) {
@@ -115,5 +111,11 @@ func serveAddItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := addItem(summary, details)
-	item := Item{id, START_UPVOTES, 
+	item := Item{id, START_UPVOTES, summary, details}
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		log.Fatal(err)
+	}
+	w.Write(data)
 }

@@ -1,9 +1,37 @@
 $(document).ready(main);
 
+function paragraph(text, start, end) {
+  return '<p>' + text.substring(start, end) + '</p>';
+}
+
+function textToHtml(text) {
+  var len = text.length;
+  var nlCount = 0;
+  var start = 0;
+  var html = '';
+  var i;
+
+  for (i = 0; i < len; ++i) {
+    if (text.charAt(i) == '\n')
+      ++nlCount;
+    else {
+      if (nlCount > 1) {
+        html += paragraph(text, start, i);
+        start = i;
+      }
+      nlCount = 0;
+    }
+  }
+  if (start < i)
+    html += paragraph(text, start, i);
+
+  return html;
+}
+
 function newItem(item) {
   var html = '<div class="item" id="item' + String(item.Id) + '" >';
   html += '<p class="summary">' + String(item.Summary) + '</p>';
-  html += '<div class="details"><p>' + String(item.Details) + '</p></div>';
+  html += '<div class="details"><p>' + textToHtml(String(item.Details)) + '</p></div>';
   html += '<hr noshade="noshade"/>';
   html += '<span style="text-align: center"><a class="action" href="#">Upvote</a> | ' + String(item.Score) + '</span>';
   html += '</div>';
@@ -40,6 +68,8 @@ function onPropose() {
 function onSubmitSuccess(data, status, jqXHR) {
   $('#summary').val('');
   $('#details').val('');
+  addItems([data]);
+  $('#items').prepend($('#item' + data.Id));
 }
 
 function onSubmit() {
