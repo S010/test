@@ -11,6 +11,7 @@ import (
 
 const MY_ADDRESS = ":8080"
 const DB_PATH = "./moderator.sqlite3"
+const START_UPVOTES = 0 // number of upvotes a newly created item has
 
 var db *sql.DB
 
@@ -38,6 +39,7 @@ func main() {
 	    http.StripPrefix("/moderator/files/", http.FileServer(http.Dir("./files"))))
 	http.HandleFunc("/moderator", serveModerator)
 	http.HandleFunc("/moderator/items", serveItems)
+	http.HandleFunc("/moderator/add/item", serveAddItem);
 	http.ListenAndServe(MY_ADDRESS, nil)
 }
 
@@ -65,12 +67,13 @@ func initDb() {
 	addItem("three", "three")
 }
 
-func addItem(summary string, details string) {
-	_, err := db.Exec(`insert into items (score, summary, details) values (?, ?, ?)`,
-	    0, summary, details)
+func addItem(summary string, details string) int64 {
+	r, err := db.Exec(`insert into items (score, summary, details) values (?, ?, ?)`,
+	    START_UPVOTES, summary, details)
 	if err != nil {
 		log.Fatal(err)
 	}
+	r.LastInsertedId()
 }
 
 func serveModerator(w http.ResponseWriter, r *http.Request) {
@@ -97,4 +100,20 @@ func serveItems(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	w.Write(data)
+}
+
+func serveAddItem(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		log.Println(err)
+		return
+	}
+	summary := r.PostForm.Get("Summary")
+	details := r.PostForm.Get("Details")
+
+	if len(summary) == 0 {
+		return
+	}
+
+	id := addItem(summary, details)
+	item := Item{id, START_UPVOTES, 
 }

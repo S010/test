@@ -37,6 +37,19 @@ function onPropose() {
 }
 */
 
+function onSubmitSuccess(data, status, jqXHR) {
+  $('#summary').val('');
+  $('#details').val('');
+}
+
+function onSubmit() {
+  var summary = $('#summary').val();
+  var details = $('#details').val();
+
+  $.post('/moderator/add/item', {Summary: summary, Details: details},
+    onSubmitSuccess, 'json');
+}
+
 function main() {
   $('button').button();
   $.getJSON('/moderator/items', addItems);
