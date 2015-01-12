@@ -32,7 +32,7 @@ function newItem(item) {
   var html = '<div class="item" id="item' + String(item.Id) + '" >';
   html += '<p class="summary">' + String(item.Summary) + '</p>';
   html += '<div class="details"><p>' + textToHtml(String(item.Details)) + '</p></div>';
-  html += '<hr noshade="noshade"/>';
+  html += '<div class="hr"/>';
   html += '<span style="text-align: center"><a class="action" href="#">Upvote</a> | ' + String(item.Score) + '</span>';
   html += '</div>';
   return html;

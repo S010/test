@@ -42,6 +42,10 @@ a.action:visited {
 	color: #3050e0;
 }
 
+div.hr {
+	border-bottom: 1px dotted #aaaaaa;
+}
+
 h1 {
 	color: #FF463B;
 	font-family: "Impact", sans-serif;
@@ -66,6 +70,7 @@ div.item {
 	padding: 1em;
 	margin-bottom: 3em;
 	display: none;
+	box-shadow: 0px 1px 2px #aaaaaa;
 }
 
 .item > hr {
@@ -87,7 +92,7 @@ div.proposeItem {
 	padding: 1em;
 	padding-right: 2em;
 	margin-bottom: 3em;
-	border: 3px dashed #cccccc;
+	border: 2px dashed #cccccc;
 }
 
 p.summary {
