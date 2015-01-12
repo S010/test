@@ -1,0 +1,16 @@
+body {
+	background-color: #909090;
+}
+
+div#body {
+	min-width: 80em;
+	max-width: 110em;
+}
+
+p.one {
+	background-color: white;
+}
+
+p#two {
+	background-color: blue;
+}
