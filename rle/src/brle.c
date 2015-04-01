@@ -14,8 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <fcntl.h>
+#include <stdlib.h>
 #include <stddef.h>
 #include <limits.h>
+#include "main.h"
 
 #define BIT_AT(i) (buf[(i) / CHAR_BIT] & (1 << ((i) % CHAR_BIT)))
 #define PUT_BIT(b)										\
@@ -29,7 +32,7 @@
 		++writep;									\
 	} while (0)
 
-size_t
+static size_t
 brle_encode(const unsigned char *buf, size_t size, unsigned char *outbuf)
 {
 	const size_t	 nbits = size * CHAR_BIT;
@@ -68,7 +71,7 @@ brle_encode(const unsigned char *buf, size_t size, unsigned char *outbuf)
 
 }
 
-size_t
+static size_t
 brle_decode(const unsigned char *buf, size_t nbits, unsigned char *outbuf)
 {
 	size_t		 readp;
@@ -94,3 +97,45 @@ brle_decode(const unsigned char *buf, size_t nbits, unsigned char *outbuf)
 #undef BIT_AT
 #undef PUT_BIT
 
+void
+encode(const char *inpath, const char *outpath)
+{
+	unsigned char	*inbuf;
+	size_t		 insize;
+	unsigned char	*outbuf;
+	size_t		 outsize;
+	size_t		 nbits;
+
+	load(inpath, &inbuf, &insize);
+	nbits = brle_encode(inbuf, insize, NULL);
+	outsize = nbits / 8 + ((nbits % 8) ? 1 : 0);
+	outbuf = xmalloc(outsize);
+	brle_encode(inbuf, insize, outbuf);
+	store(outpath, &nbits, sizeof nbits, O_CREAT | O_TRUNC);
+	store(outpath, outbuf, outsize, O_APPEND);
+	free(inbuf);
+	free(outbuf);
+}
+
+void
+decode(const char *inpath, const char *outpath)
+{
+	unsigned char	*inbuf;
+	size_t		 insize;
+	unsigned char	*outbuf;
+	size_t		 outsize;
+	size_t		 nbitsin;
+	size_t		 nbitsout;
+	size_t		 i;
+
+	load(inpath, &inbuf, &insize);
+	for (i = 0, nbitsin = 0; i < sizeof(nbitsin); ++i)
+		nbitsin |= inbuf[i] << (CHAR_BIT * i);
+	nbitsout = brle_decode(inbuf + sizeof(nbitsin), nbitsin, NULL);
+	outsize = nbitsout / CHAR_BIT + ((nbitsout % CHAR_BIT) ? 1 : 0);
+	outbuf = xmalloc(outsize);
+	brle_decode(inbuf + sizeof(nbitsin), nbitsin, outbuf);
+	store(outpath, outbuf, outsize, O_CREAT | O_TRUNC);
+	free(inbuf);
+	free(outbuf);
+}
