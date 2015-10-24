@@ -14,7 +14,7 @@ is_prime(unsigned long i)
 
 	root = sqrt(i);
 
-	for (j = 3; j < root; j++)
+	for (j = 3; j <= root; j++)
 		if (i % j == 0)
 			return false;
 	return true;
@@ -24,9 +24,6 @@ static void
 primes(unsigned long i, unsigned long n)
 {
 	unsigned long	 count;
-
-	printf("i = %lu\n", i);
-	printf("n = %lu\n", n);
 
 	if (i % 2 == 0)
 		i++;
@@ -46,7 +43,7 @@ primes(unsigned long i, unsigned long n)
 int
 main(int argc, char **argv)
 {
-	unsigned long	 start = 1;
+	unsigned long	 start = 2;
 	unsigned long	 n = 0;
 
 	if (argc > 1)
