@@ -21,7 +21,7 @@ is_prime(unsigned long i)
 }
 
 static void
-primes(unsigned long i, unsigned long n)
+primes_nocache(unsigned long i, unsigned long n)
 {
 	unsigned long	 count;
 
@@ -32,6 +32,46 @@ primes(unsigned long i, unsigned long n)
 		if (is_prime(i)) {
 			printf("%lu\n", i);
 			count++;
+		}
+		i += 2;
+	}
+}
+
+static bool
+is_prime_cached(unsigned long i, unsigned long *arr, unsigned long count)
+{
+	unsigned long	 root;
+
+	root = sqrt(i);
+
+	arr++, count--; /* skip 2 */
+
+	while (*arr <= root && count > 0) {
+		if (i % *arr == 0)
+			return false;
+		arr++;
+		count--;
+	}
+
+	return true;
+}
+
+static void
+primes_cached(unsigned long i, unsigned long n)
+{
+	unsigned long	*arr = NULL; /* Array of prime numbers */
+	unsigned long	 count = 1;
+
+	arr = reallocarray(arr, count, sizeof i);
+	arr[count - 1] = 2;
+
+	i = 3;
+
+	while (n == 0 || count < n) {
+		if (is_prime_cached(i, arr, count)) {
+			printf("%lu\n", i);
+			arr = reallocarray(arr, ++count, sizeof i);
+			arr[count - 1] = i;
 		}
 		i += 2;
 	}
@@ -51,7 +91,7 @@ main(int argc, char **argv)
 	if (argc > 2)
 		n = strtoul(argv[2], NULL, 10);
 
-	primes(start, n);
+	primes_cached(start, n);
 
 	return 0;
 }
