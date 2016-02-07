@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+    <script>
+        function onload() {
+            var p = document.getElementsByTagName('pre')[0];
+            p.innerHTML = 'FileEraser: ' + window.FileEraser + '<br/>'
+                + 'FileEraser.eraseFile: ' + window.FileEraser.eraseFile + '<br/>'; 
+        }
+
+        function eraseFile(path) {
+            var result = window.FileEraser.eraseFile(path);
+            alert(result);
+        }
+    </script>
+</head>
+<body onload="onload();">
+    <h3>JavaScript extensions test</h3>
+    <pre></pre>
+    <input type="submit" title="Erase File" onclick="eraseFile('unneeded_file');"/>
+</body>
+</html>
