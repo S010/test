@@ -2,8 +2,8 @@
  * Defintions for Freescale i.MX6 Dual/Quad SoC.
  */
 
-#ifndef IMX6DQ_H
-#define IMX6DQ_H
+#ifndef __IMX6DQ_H__
+#define __IMX6DQ_H__
 
 #include <stdint.h>
 #include "bitops.h"

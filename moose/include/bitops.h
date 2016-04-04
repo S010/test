@@ -1,5 +1,5 @@
-#ifndef BITOPS_H
-#define BITOPS_H
+#ifndef __BITOPS_H__
+#define __BITOPS_H__
 
 #define BITMASK_N(n)	(~(~0u << (n)))
 #define BITMASK(hi, lo)	(BITMASK_N(hi - lo + 1) << (lo))

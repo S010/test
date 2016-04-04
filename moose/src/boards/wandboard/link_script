@@ -1,7 +1,7 @@
 ENTRY(start)
 SECTIONS {
-	.text 0x900000 : {
-            start_program_image.o(.text)
+	.text 0x17800000 : {
+            start.o(.text)
             led.o(.text)
             end.o(.text)
         }

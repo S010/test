@@ -1,8 +1,7 @@
 #ifndef __ERR_H__
 #define __ERR_H__
 
-typedef enum {
-	ESUCCESS = 0,
+enum {
 	EPERM = -1,
 	ENOENT = -2,
 	ESRCH = -3,
@@ -96,6 +95,6 @@ typedef enum {
 	ENOMSG = -90,
 	ENOTSUP = -91,
 	ELAST = -91,
-} err_t;
+};
 
 #endif
