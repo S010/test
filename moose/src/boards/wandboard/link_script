@@ -1,8 +1,8 @@
 ENTRY(start)
 SECTIONS {
 	.text 0x17800000 : {
-            start.o(.text)
-            led.o(.text)
-            end.o(.text)
+            src/boards/wandboard/start.o(.text)
+            src/boards/wandboard/led.o(.text)
+            src/boards/wandboard/end.o(.text)
         }
 }
