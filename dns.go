@@ -340,12 +340,22 @@ func logFatal(args ...interface{}) {
 
 var quietFlag = flag.Bool("quiet", false, "disable debug messages")
 var serverFlag = flag.String("server", "8.8.8.8", "IP address of DNS server to query")
+var waitFlag = flag.Int("wait", -1, "interval in milliseconds at which to make queries in round robing fashion")
 
 // Client
 func main() {
 	flag.Parse()
 
-	for _, name := range flag.Args() {
-		query(name)
+	args := flag.Args()
+
+	for {
+		for _, name := range args {
+			query(name)
+		}
+		if *waitFlag < 0 {
+			break
+		} else if *waitFlag > 0 {
+			time.Sleep(time.Duration(*waitFlag) * time.Millisecond)
+		}
 	}
 }
