@@ -8,6 +8,7 @@ import (
 	"strings"
 	"bytes"
 	"time"
+	"flag"
 )
 
 //
@@ -54,17 +55,27 @@ type Resource struct {
 	Type uint16
 	Class uint16
 	TTL uint32
-	Lenght uint16
+	Length uint16
 	Data []byte
 }
 
 func (m Message) String() string {
-	return fmt.Sprintf("%#v", m)
-}
-
-func (m Message) PrettyString() string {
-	return fmt.Sprintf("ID: %v\nQR: %v\nOpCode: %v\nAA: %v\nTC: %v\nRD: %v\nRA: %v\nZ: %v\nRCode: %v\nQDCount: %v\nANCount: %v\nNSCount: %v\nARCount: %v\n",
+	s := fmt.Sprintf("ID: %v\nQR: %v\nOpCode: %v\nAA: %v\nTC: %v\nRD: %v\nRA: %v\nZ: %v\nRCode: %v\nQDCount: %v\nANCount: %v\nNSCount: %v\nARCount: %v\n",
 		m.Hdr.ID, m.Hdr.QR, m.Hdr.OpCode, m.Hdr.AA, m.Hdr.TC, m.Hdr.RD, m.Hdr.RA, m.Hdr.Z, m.Hdr.RCode, m.Hdr.QDCount, m.Hdr.ANCount, m.Hdr.NSCount, m.Hdr.ARCount)
+	if len(m.Questions) > 0 {
+		s += "Questions:\n"
+		for _, q := range m.Questions {
+			s += fmt.Sprintf("%v\n", q)
+		}
+	}
+	if len(m.Resources) > 0 {
+		s += "Resources:\n"
+		for _, r := range m.Resources {
+			s += fmt.Sprintf("%v\n", r)
+		}
+	}
+
+	return s
 }
 
 func (m *Message) Serialize() MessageData {
@@ -114,7 +125,7 @@ func (data *MessageData) Slice(left, right int) []byte {
 }
 
 func (data *MessageData) Name(pos int) (string, int) {
-	//log.Printf("dbg: pos=%v", pos)
+	//logPrintf("dbg: pos=%v", pos)
 
 	b := bytes.Buffer{}
 	for {
@@ -226,6 +237,14 @@ func (data *MessageData) Parse() *Message {
 	return m
 }
 
+func (q Question) String() string {
+	return fmt.Sprintf("{ %v; %v; %v }", q.Name, q.Type, q.Class)
+}
+
+func (r Resource) String() string {
+	return fmt.Sprintf("{ %v; %v; %v; %v; %v; %v }", r.Name, r.Type, r.Class, r.TTL, r.Length, r.Data)
+}
+
 //
 // misc
 //
@@ -241,27 +260,27 @@ func boolToByte(val bool, bitNo uint) byte {
 /*
 // Server
 func main() {
-	log.Printf("dnsd started\n")
+	logPrintf("dnsd started\n")
 
 	c, err := net.ListenUDP("udp", &net.UDPAddr{[]byte{127, 0, 0, 1}, 5353, ""})
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 
 	go query("www.google.com")
 
 	for {
 		data := make(MessageData, MAX_MESSAGE_SIZE)
-		log.Printf("Waiting for a message")
+		logPrintf("Waiting for a message")
 		n, err := c.Read([]byte(data))
 		if err != nil {
-			log.Print(err)
+			logPrint(err)
 			continue
 		}
 		data = data[:n]
-		log.Printf("Message data:\n%v", data)
+		logPrintf("Message data:\n%v", data)
 		m := data.Parse()
-		log.Printf("Parsed message:\n%v", m)
+		logPrintf("Parsed message:\n%v", m)
 	}
 }
 */
@@ -277,29 +296,56 @@ func NewQuery(name string) *Message {
 	return &m
 }
 
-// Client
-func main() {
-	c, err := net.DialUDP("udp", nil, &net.UDPAddr{[]byte{8, 8, 8, 8}, 53, ""})
-	if err != nil {
-		log.Fatal(err)
-	}
+var debugMode bool
 
-	msg := NewQuery("www.google.com")
+func query(name string) {
+	c, err := net.DialUDP("udp", nil, &net.UDPAddr{net.ParseIP(*serverFlag), 53, ""})
+	if err != nil {
+		logFatal(err)
+	}
+	defer c.Close()
+
+	msg := NewQuery(name)
 
 	data := msg.Serialize()
-	log.Printf("Query data:\n%v", data)
-	log.Printf("Parsed query:\n%v", msg.PrettyString())
+	logPrintf("Query:\n%v%v", data, msg)
 	c.Write(data)
 
 	c.SetReadDeadline(time.Now().Add(time.Second))
 	data = make(MessageData, MAX_MESSAGE_SIZE)
 	n, err := c.Read([]byte(data))
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 	data = data[:n]
 
-	log.Printf("Reply data:\n%v", data)
-	
-	log.Printf("Parsed reply:\n%v", data.Parse().PrettyString())
+	logPrintf("Reply:\n%v%v", data, data.Parse())
+}
+
+func logPrintf(fmt string, args ...interface{}) {
+	if !*quietFlag {
+		log.Printf(fmt, args...)
+	}
+}
+
+func logPrint(args ...interface{}) {
+	if !*quietFlag {
+		log.Print(args...)
+	}
+}
+
+func logFatal(args ...interface{}) {
+	log.Fatal(args...)
+}
+
+var quietFlag = flag.Bool("quiet", false, "disable debug messages")
+var serverFlag = flag.String("server", "8.8.8.8", "IP address of DNS server to query")
+
+// Client
+func main() {
+	flag.Parse()
+
+	for _, name := range flag.Args() {
+		query(name)
+	}
 }
