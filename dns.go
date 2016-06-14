@@ -9,7 +9,13 @@ import (
 	"bytes"
 	"time"
 	"flag"
+	"io/ioutil"
+	"crypto/rand"
+	"math"
+	"math/big"
 )
+
+var queryID uint16
 
 //
 // Message
@@ -288,10 +294,12 @@ func main() {
 func NewQuery(name string) *Message {
 	var m Message
 
-	m.Hdr.ID = 0x1001
+	m.Hdr.ID = queryID
 	m.Hdr.RD = true
 	m.Hdr.QDCount = 1
 	m.Questions = append(m.Questions, Question{Name: name, Type: TYPE_A, Class: CLASS_IN})
+
+	queryID++
 
 	return &m
 }
@@ -341,21 +349,61 @@ func logFatal(args ...interface{}) {
 var quietFlag = flag.Bool("quiet", false, "disable debug messages")
 var serverFlag = flag.String("server", "8.8.8.8", "IP address of DNS server to query")
 var waitFlag = flag.Int("wait", -1, "interval in milliseconds at which to make queries in round robing fashion")
+var nameListFlag = flag.String("names", "", "File with a list of names to query")
+var countFlag = flag.Int("count", 1, "Number of iterations, negative or zero value means unlimited")
+
+func appendNamesFromFile(names []string, path string) []string {
+	contents, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	a := strings.Split(string(contents), "\n")
+	for _, line := range a {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			names = append(names, line)
+		}
+	}
+
+	return names
+}
+
+func initQueryID() {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(math.MaxUint16)))
+
+	if err != nil {
+		log.Printf("Failed to initialize DNS message ID from random source: %v", err)
+	} else {
+		queryID = uint16(n.Int64())
+	}
+}
 
 // Client
 func main() {
+	initQueryID()
+
 	flag.Parse()
 
-	args := flag.Args()
+	names := flag.Args()
+
+	if *nameListFlag != "" {
+		appendNamesFromFile(names, *nameListFlag)
+	}
 
 	for {
-		for _, name := range args {
+		for _, name := range names {
 			query(name)
+			if *waitFlag < 0 {
+				break
+			} else if *waitFlag > 0 {
+				time.Sleep(time.Duration(*waitFlag) * time.Millisecond)
+			}
 		}
-		if *waitFlag < 0 {
-			break
-		} else if *waitFlag > 0 {
-			time.Sleep(time.Duration(*waitFlag) * time.Millisecond)
+		if *countFlag > 0 {
+			*countFlag--
+			if *countFlag <= 0 {
+				break
+			}
 		}
 	}
 }
