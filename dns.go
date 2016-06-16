@@ -319,11 +319,12 @@ func query(name string) {
 	logPrintf("Query:\n%v%v", data, msg)
 	c.Write(data)
 
-	c.SetReadDeadline(time.Now().Add(time.Second))
+	c.SetReadDeadline(time.Now().Add(time.Duration(*timeoutFlag) * time.Millisecond))
 	data = make(MessageData, MAX_MESSAGE_SIZE)
 	n, err := c.Read([]byte(data))
 	if err != nil {
-		logFatal(err)
+		logPrint(err)
+		return
 	}
 	data = data[:n]
 
@@ -351,6 +352,7 @@ var serverFlag = flag.String("server", "8.8.8.8", "IP address of DNS server to q
 var waitFlag = flag.Int("wait", -1, "interval in milliseconds at which to make queries in round robing fashion")
 var nameListFlag = flag.String("names", "", "File with a list of names to query")
 var countFlag = flag.Int("count", 1, "Number of iterations, negative or zero value means unlimited")
+var timeoutFlag = flag.Int("timeout", 500, "Number of milliseconds after which to give up and stop waiting for reply")
 
 func appendNamesFromFile(names []string, path string) []string {
 	contents, err := ioutil.ReadFile(path)
