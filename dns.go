@@ -1,18 +1,19 @@
 package main
 
 import (
-	"log"
-	"fmt"
-	"encoding/hex"
-	"net"
-	"strings"
 	"bytes"
-	"time"
-	"flag"
-	"io/ioutil"
 	"crypto/rand"
+	"encoding/hex"
+	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
 	"math"
 	"math/big"
+	"net"
+	"os"
+	"strings"
+	"time"
 )
 
 var queryID uint16
@@ -29,7 +30,7 @@ const (
 )
 
 type Message struct {
-	Hdr Header
+	Header
 	Questions []Question
 	Resources []Resource
 }
@@ -67,7 +68,7 @@ type Resource struct {
 
 func (m Message) String() string {
 	s := fmt.Sprintf("ID: %v\nQR: %v\nOpCode: %v\nAA: %v\nTC: %v\nRD: %v\nRA: %v\nZ: %v\nRCode: %v\nQDCount: %v\nANCount: %v\nNSCount: %v\nARCount: %v\n",
-		m.Hdr.ID, m.Hdr.QR, m.Hdr.OpCode, m.Hdr.AA, m.Hdr.TC, m.Hdr.RD, m.Hdr.RA, m.Hdr.Z, m.Hdr.RCode, m.Hdr.QDCount, m.Hdr.ANCount, m.Hdr.NSCount, m.Hdr.ARCount)
+		m.ID, m.QR, m.OpCode, m.AA, m.TC, m.RD, m.RA, m.Z, m.RCode, m.QDCount, m.ANCount, m.NSCount, m.ARCount)
 	if len(m.Questions) > 0 {
 		s += "Questions:\n"
 		for _, q := range m.Questions {
@@ -87,18 +88,27 @@ func (m Message) String() string {
 func (m *Message) Serialize() MessageData {
 	data := make(MessageData, 0, MAX_MESSAGE_SIZE)
 
-	data.AppendUint16(m.Hdr.ID)
-	data.AppendByte(boolToByte(m.Hdr.QR, 7) | (m.Hdr.OpCode << 3) | boolToByte(m.Hdr.AA, 2) | boolToByte(m.Hdr.TC, 1) | boolToByte(m.Hdr.RD, 0))
-	data.AppendByte(boolToByte(m.Hdr.RA, 7) | ((m.Hdr.Z & 0xf) << 4) | (m.Hdr.RCode & 0xf))
-	data.AppendUint16(m.Hdr.QDCount)
-	data.AppendUint16(m.Hdr.ANCount)
-	data.AppendUint16(m.Hdr.NSCount)
-	data.AppendUint16(m.Hdr.ARCount)
+	data.AppendUint16(m.ID)
+	data.AppendByte(boolToByte(m.QR, 7) | (m.OpCode << 3) | boolToByte(m.AA, 2) | boolToByte(m.TC, 1) | boolToByte(m.RD, 0))
+	data.AppendByte(boolToByte(m.RA, 7) | ((m.Z & 0xf) << 4) | (m.RCode & 0xf))
+	data.AppendUint16(m.QDCount)
+	data.AppendUint16(m.ANCount)
+	data.AppendUint16(m.NSCount)
+	data.AppendUint16(m.ARCount)
 
 	for _, q := range m.Questions {
 		data.AppendName(q.Name)
 		data.AppendUint16(q.Type)
 		data.AppendUint16(q.Class)
+	}
+
+	for _, r := range m.Resources {
+		data.AppendName(r.Name)
+		data.AppendUint16(r.Type)
+		data.AppendUint16(r.Class)
+		data.AppendUint32(r.TTL)
+		data.AppendUint16(r.Length)
+		data.AppendData(r.Data)
 	}
 
 	return data[:len(data)]
@@ -140,6 +150,12 @@ func (data *MessageData) Name(pos int) (string, int) {
 		if l == 0 {
 			break
 		}
+		/* FIXME
+		if l > len(data) - pos {
+			log.Printf("Error: malformed data in resource")
+			return "", 0
+		}
+		*/
 		if b.Len() > 0 {
 			b.WriteString(".")
 		}
@@ -190,6 +206,10 @@ func (data *MessageData) AppendUint16(val uint16) {
 	*data = append(*data, byte((val >> 8) & 0xff), byte(val & 0xff))
 }
 
+func (data *MessageData) AppendUint32(val uint32) {
+	*data = append(*data, byte((val >> 24) & 0xff), byte((val >> 16) & 0xff), byte((val >> 8) & 0xff), byte(val & 0xff))
+}
+
 func (data *MessageData) AppendData(appendData []byte) {
 	*data = append(*data, appendData...)
 }
@@ -208,33 +228,33 @@ func (data *MessageData) AppendName(name string) {
 func (data *MessageData) Parse() *Message {
 	m := &Message{}
 	pos := 0
-	m.Hdr.ID, pos = data.Uint16(pos)
-	m.Hdr.QR = data.Bit(2, 7)
-	m.Hdr.OpCode = (data.Byte(2) >> 3) & 0xf
-	m.Hdr.AA = data.Bit(2, 2)
-	m.Hdr.TC = data.Bit(2, 1)
-	m.Hdr.RD = data.Bit(2, 0)
+	m.ID, pos = data.Uint16(pos)
+	m.QR = data.Bit(2, 7)
+	m.OpCode = (data.Byte(2) >> 3) & 0xf
+	m.AA = data.Bit(2, 2)
+	m.TC = data.Bit(2, 1)
+	m.RD = data.Bit(2, 0)
 
-	m.Hdr.RA = data.Bit(3, 7)
-	m.Hdr.Z = (data.Byte(3) >> 4) & 0x7
-	m.Hdr.RCode = data.Byte(3) & 0xf
+	m.RA = data.Bit(3, 7)
+	m.Z = (data.Byte(3) >> 4) & 0x7
+	m.RCode = data.Byte(3) & 0xf
 
 	pos = 4
 
-	m.Hdr.QDCount, pos = data.Uint16(pos)
-	m.Hdr.ANCount, pos = data.Uint16(pos)
-	m.Hdr.NSCount, pos = data.Uint16(pos)
-	m.Hdr.ARCount, pos = data.Uint16(pos)
+	m.QDCount, pos = data.Uint16(pos)
+	m.ANCount, pos = data.Uint16(pos)
+	m.NSCount, pos = data.Uint16(pos)
+	m.ARCount, pos = data.Uint16(pos)
 
 	var question Question
 	var resource Resource
 
-	for i := 0; i < int(m.Hdr.QDCount); i++ {
+	for i := 0; i < int(m.QDCount); i++ {
 		question, pos = data.Question(pos)
 		m.Questions = append(m.Questions, question)
 	}
 
-	count := m.Hdr.ANCount + m.Hdr.NSCount + m.Hdr.ARCount
+	count := m.ANCount + m.NSCount + m.ARCount
 	for i := 0; i < int(count); i++ {
 		resource, pos = data.Resource(pos)
 		m.Resources = append(m.Resources, resource)
@@ -263,40 +283,12 @@ func boolToByte(val bool, bitNo uint) byte {
 	}
 }
 
-/*
-// Server
-func main() {
-	logPrintf("dnsd started\n")
-
-	c, err := net.ListenUDP("udp", &net.UDPAddr{[]byte{127, 0, 0, 1}, 5353, ""})
-	if err != nil {
-		logFatal(err)
-	}
-
-	go query("www.google.com")
-
-	for {
-		data := make(MessageData, MAX_MESSAGE_SIZE)
-		logPrintf("Waiting for a message")
-		n, err := c.Read([]byte(data))
-		if err != nil {
-			logPrint(err)
-			continue
-		}
-		data = data[:n]
-		logPrintf("Message data:\n%v", data)
-		m := data.Parse()
-		logPrintf("Parsed message:\n%v", m)
-	}
-}
-*/
-
 func NewQuery(name string) *Message {
 	var m Message
 
-	m.Hdr.ID = queryID
-	m.Hdr.RD = true
-	m.Hdr.QDCount = 1
+	m.ID = queryID
+	m.RD = true
+	m.QDCount = 1
 	m.Questions = append(m.Questions, Question{Name: name, Type: TYPE_A, Class: CLASS_IN})
 
 	queryID++
@@ -307,7 +299,12 @@ func NewQuery(name string) *Message {
 var debugMode bool
 
 func query(name string) {
-	c, err := net.DialUDP("udp", nil, &net.UDPAddr{net.ParseIP(*serverFlag), 53, ""})
+	addr, err := net.ResolveUDPAddr("udp", *serverFlag)
+	if err != nil {
+		log.Fatalf("%v: %v", *serverFlag, err)
+	}
+
+	c, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
 		logFatal(err)
 	}
@@ -353,6 +350,7 @@ var waitFlag = flag.Int("wait", -1, "interval in milliseconds at which to make q
 var nameListFlag = flag.String("names", "", "File with a list of names to query")
 var countFlag = flag.Int("count", 1, "Number of iterations, negative or zero value means unlimited")
 var timeoutFlag = flag.Int("timeout", 500, "Number of milliseconds after which to give up and stop waiting for reply")
+var listenFlag = flag.String("listen", "", "Act as a DNS server and listen for connections on specified address")
 
 func appendNamesFromFile(names []string, path string) []string {
 	contents, err := ioutil.ReadFile(path)
@@ -380,11 +378,122 @@ func initQueryID() {
 	}
 }
 
-// Client
-func main() {
-	initQueryID()
+type NameDB map[string]net.IP
 
-	flag.Parse()
+func loadDB(dbPath string) (NameDB, error) {
+	log.Printf("Loading name database from %v", dbPath)
+
+	fin, err := os.Open(dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := ioutil.ReadAll(fin)
+	if err != nil {
+		return nil, err
+	}
+
+	db := make(NameDB)
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line := strings.Trim(line, " \t")
+		line = strings.Split(line, "#")[0]
+		if len(line) == 0 {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		ip := net.ParseIP(fields[0])
+		ip4 := ip.To4()
+		ip6 := ip.To16()
+		if ip4 != nil {
+			ip = ip4
+		} else {
+			ip = ip6
+		}
+		for _, name := range fields[1:] {
+			db[name] = ip
+			log.Printf("Adding record: %v -> %v", name, ip)
+		}
+	}
+
+	return db, nil
+}
+
+func runServer(listenAddr string, dbPath string) {
+	db, err := loadDB(dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myAddr, err := net.ResolveUDPAddr("udp", listenAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	conn, err := net.ListenUDP("udp", myAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for {
+		data := make(MessageData, MAX_MESSAGE_SIZE)
+		n, clientAddr, err := conn.ReadFromUDP([]byte(data))
+		if err != nil {
+			log.Print(err)
+			continue
+		}
+
+		data = data[:n]
+		msg := data.Parse()
+
+		log.Printf("Query:\n%v%v", hex.Dump(data), msg)
+
+		if msg.QDCount < 1 {
+			log.Print("Skipping query without questions")
+			continue
+		}
+
+		reply := msg
+		reply.ANCount = 0
+		reply.Resources = make([]Resource, 0)
+
+		for _, q := range msg.Questions {
+			if q.Type != TYPE_A || q.Class != CLASS_IN {
+				continue
+			}
+			ip, present := db[q.Name]
+			if !present {
+				continue
+			}
+			reply.ANCount++
+			reply.Resources = append(reply.Resources, Resource{
+				q.Name,
+				TYPE_A,
+				CLASS_IN,
+				10,
+				uint16(len([]byte(ip))),
+				[]byte(ip),
+			})
+		}
+
+		if reply.ANCount > 0 {
+			replyData := reply.Serialize()
+			conn.WriteToUDP(replyData, clientAddr)
+			log.Printf("Reply:\n%v%v", hex.Dump(replyData), reply)
+		} else {
+			log.Printf("Reply: no-reply")
+		}
+	}
+}
+
+func runClient() {
+	initQueryID()
 
 	names := flag.Args()
 
@@ -407,5 +516,20 @@ func main() {
 				break
 			}
 		}
+	}
+}
+
+func main() {
+	flag.Parse()
+
+	if *listenFlag != "" {
+		dbPath := flag.Arg(0)
+		if dbPath == "" {
+			fmt.Fprintf(os.Stderr, "Please specify the path to hosts file as a free argument.")
+			os.Exit(1)
+		}
+		runServer(*listenFlag, dbPath)
+	} else {
+		runClient()
 	}
 }
