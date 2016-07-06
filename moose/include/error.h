@@ -1,5 +1,5 @@
-#ifndef __ERR_H__
-#define __ERR_H__
+#ifndef __ERROR_H__
+#define __ERROR_H__
 
 enum {
 	EPERM = -1,
