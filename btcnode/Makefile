@@ -4,14 +4,19 @@ CFLAGS += \
 	  -Wextra \
 	  -Werror \
 	  -pedantic \
+	  -g \
 	  -O3
 
 LDFLAGS += \
 	   -lcrypto
 
-.PHONY: all clean
+.PHONY: all test clean
 
 all: btcnode
+
+test: btcnode
+	./btcnode
+	hexdump -C btcnode.out
 
 btcnode: main.o
 	$(CC) $(LDFLAGS) -o $@ $<
