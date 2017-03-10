@@ -74,7 +74,7 @@ struct version_msg {
 
 	int32_t start_height;
 
-	bool relay;
+	uint8_t relay;
 };
 
 int
@@ -130,91 +130,6 @@ calc_version_msg_len(const struct version_msg *msg)
 	return len;
 }
 
-int
-marshal_version_msg(const struct version_msg *msg, uint8_t *out)
-{
-	uint32_t h, l;
-
-	#define APPEND_UINT16(name) \
-		do { \
-			*((uint16_t *)out) = htons(msg->name); \
-			out += sizeof(msg->name); \
-		} while (0)
-
-	#define APPEND_INT32(name) \
-		do { \
-			*((uint32_t *)out) = htonl(msg->name); \
-			out += sizeof(msg->name); \
-		} while (0)
-
-	#define APPEND_UINT64(name) \
-		do { \
-			h = htonl(msg->name >> 32); \
-			l = htonl(msg->name & 0xffffffff); \
-			*((uint64_t *)out) = (((uint64_t)l) << 32) | (uint64_t)h; \
-			out += sizeof(uint64_t); \
-		} while (0)
-
-	#define APPEND_IP(name) \
-		do { \
-			memcpy(out, msg->name, sizeof(msg->name)); \
-			out += sizeof(msg->name); \
-		} while (0)
-
-	APPEND_INT32(version);
-
-	APPEND_UINT64(services);
-	APPEND_UINT64(timestamp);
-
-	APPEND_UINT64(recv_services);
-	APPEND_IP(recv_ip);
-	APPEND_UINT16(recv_port);
-
-	APPEND_UINT64(trans_services);
-	APPEND_IP(trans_ip);
-	APPEND_UINT16(trans_port);
-
-	APPEND_UINT64(nonce);
-
-	*out++ = msg->user_agent_len;
-	if (msg->user_agent_len > 0)
-		memcpy(out, msg->user_agent, msg->user_agent_len);
-	out += msg->user_agent_len;
-
-	APPEND_INT32(start_height);
-
-	*out++ = msg->relay;
-
-	return 0;
-}
-
-int
-marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out)
-{
-	memcpy(out, hdr->start, sizeof(hdr->start));
-	out += sizeof(hdr->start);
-
-	memcpy(out, hdr->command, sizeof(hdr->command));
-	out += sizeof(hdr->command);
-
-	*((uint32_t *)out) = htonl(hdr->payload_size);
-	out += sizeof(hdr->payload_size);
-
-	memcpy(out, hdr->checksum, sizeof(hdr->checksum));
-	out += sizeof(hdr->checksum);
-
-	return 0;
-}
-
-int
-marshal_in6_addr(const struct in6_addr *addr, uint8_t *out)
-{
-	for (int i = 15; i >= 0; --i)
-		*out++ = ((const uint8_t *)addr)[i];
-
-	return 0;
-}
-
 #define marshal(x, y) \
 	_Generic((x), \
 		struct msg_hdr *: marshal_msg_hdr, \
@@ -222,8 +137,104 @@ marshal_in6_addr(const struct in6_addr *addr, uint8_t *out)
 		struct version_msg *: marshal_version_msg, \
 		const struct version_msg *: marshal_version_msg, \
 		struct in6_addr *: marshal_in6_addr, \
-		const struct in6_addr *: marshal_in6_addr \
+		const struct in6_addr *: marshal_in6_addr, \
+		int32_t: marshal_uint32, \
+		uint32_t: marshal_uint32, \
+		int16_t: marshal_uint16, \
+		uint16_t: marshal_uint16, \
+		int64_t: marshal_uint64, \
+		uint64_t: marshal_uint64, \
+		int8_t: marshal_uint8, \
+		uint8_t: marshal_uint8 \
 	)((x), (y))
+
+inline size_t
+marshal_uint8(uint8_t i, uint8_t *out)
+{
+	*out++ = i;
+	return 1;
+}
+
+inline size_t
+marshal_uint16(uint16_t i, uint8_t *out)
+{
+	*out++ = (i & 0xff00) >> 8;
+	*out++ = i & 0xff;
+	return 2;
+}
+
+inline size_t
+marshal_uint32(uint32_t i, uint8_t *out)
+{
+	*out++ = (i >> 24) & 0xff;
+	*out++ = (i >> 16) & 0xff;
+	*out++ = (i >> 8) & 0xff;
+	*out++ = i & 0xff;
+	return 4;
+}
+
+inline size_t
+marshal_uint64(uint64_t i, uint8_t *out)
+{
+	int n = 7;
+	while (n >= 0) {
+		*out++ = i >> (8 * n--);
+	}
+	return 8;
+}
+
+#define marshal_bytes(in, size, out) \
+	marshal_bytes_any((const uint8_t *)in, size, out)
+
+inline size_t
+marshal_bytes_any(const uint8_t *in, size_t in_size, uint8_t *out)
+{
+	memcpy(out, in, in_size);
+	return in_size;
+}
+
+size_t marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out);
+size_t marshal_in6_addr(const struct in6_addr *addr, uint8_t *out);
+
+size_t
+marshal_version_msg(const struct version_msg *msg, uint8_t *out)
+{
+	size_t off = 0;
+	off += marshal(msg->version, out + off);
+	off += marshal(msg->services, out + off);
+	off += marshal(msg->timestamp, out + off);
+	off += marshal(msg->recv_services, out + off);
+	off += marshal_bytes(msg->recv_ip, sizeof(msg->recv_ip), out + off);
+	off += marshal(msg->recv_port, out + off);
+	off += marshal(msg->trans_services, out + off);
+	off += marshal_bytes(msg->trans_ip, sizeof(msg->trans_ip), out + off);
+	off += marshal(msg->trans_port, out + off);
+	off += marshal(msg->nonce, out + off);
+	off += marshal(msg->user_agent_len, out + off);
+	off += marshal_bytes(msg->user_agent, msg->user_agent_len, out + off);
+	off += marshal(msg->start_height, out + off);
+	off += marshal(msg->relay, out + off);
+	return off;
+}
+
+size_t
+marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out)
+{
+	size_t off = 0;
+	off += marshal_bytes(hdr->start, sizeof(hdr->start), out + off);
+	off += marshal_bytes(hdr->command, sizeof(hdr->command), out + off);
+	off += marshal(hdr->payload_size, out + off);
+	off += marshal_bytes(hdr->checksum, sizeof(hdr->checksum), out + off);
+	return off;
+}
+
+size_t
+marshal_in6_addr(const struct in6_addr *addr, uint8_t *out)
+{
+	for (int i = 15; i >= 0; --i)
+		*out++ = ((const uint8_t *)addr)[i];
+	return 16;
+}
 
 int
 fill_msg_hdr(
@@ -356,6 +367,8 @@ probe_peer(int family, const struct sockaddr *sa, socklen_t salen)
 		perror("connect"), exit(1);
 
 	say_hello(family, sa, salen, peer);
+
+	sleep(5);
 }
 
 int
@@ -378,9 +391,9 @@ main(int argc, char **argv)
 	struct addrinfo *addrs = discover_peers();
 	for (struct addrinfo *ai = addrs; ai != NULL; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET6)
-			continue;// FIXME Fix say_hello()
+			continue;
+		// FIXME Convert peer addr to IPv6 if it's IPv4 in say_hello
 		//probe_peer(ai->ai_family, ai->ai_addr, ai->ai_addrlen);
-		// FIXME
 		say_hello(ai->ai_family, ai->ai_addr, ai->ai_addrlen, fd);
 		break;
 	}
