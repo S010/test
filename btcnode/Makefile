@@ -22,7 +22,6 @@ bin/btcnode: src/main.o src/protocol.o
 
 test: bin/btcnode
 	./bin/btcnode
-	hexdump -C btcnode.out
 
 clean:
 	rm -rf src/*.o bin btcnode.out

@@ -15,11 +15,13 @@
  */
 
 #define _POSIX_C_SOURCE 201112L
+#define _DEFAULT_SOURCE
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -32,6 +34,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <endian.h>
 
 #include "protocol.h"
 
@@ -51,6 +54,7 @@ discover_peers(void)
 		return NULL;
 	}
 
+	printf("Discovering peers:\n");
 	for (ai = addrs; ai != NULL; ai = ai->ai_next) {
 		switch (ai->ai_family) {
 		case AF_INET:
@@ -62,12 +66,9 @@ discover_peers(void)
 		default:
 			continue;
 		}
-		printf("%s\n",
+		printf(" %s\n",
 		    inet_ntop(ai->ai_family, addr_ptr, buf, sizeof(buf)));
 	}
-
-	// FIXME
-	//freeaddrinfo(addrs);
 
 	return addrs;
 }
@@ -75,10 +76,10 @@ discover_peers(void)
 void
 say_hello(int family, const struct sockaddr *sa, socklen_t salen, int peer)
 {
-	const char user_agent[] = "btcnode";
+	const char user_agent[] = "/btcnode:0.0.1/";
 	struct version_msg ver_msg;
 	int error;
-	struct in6_addr in6_addr = IN6ADDR_LOOPBACK_INIT;
+	uint32_t i;
 
 	(void)family;
 	(void)salen;
@@ -89,15 +90,25 @@ say_hello(int family, const struct sockaddr *sa, socklen_t salen, int peer)
 	ver_msg.version = PROTOCOL_VERSION;
 	ver_msg.services = 0;
 	ver_msg.timestamp = time(NULL);
-	ver_msg.recv_services = NODE_NETWORK;
-	// FIXME Convert IPv4 address to IPv6 if needed
-	//marshal(&((struct sockaddr_in6 *)sa)->sin6_addr, ver_msg.recv_ip);
-	marshal(&in6_addr, ver_msg.recv_ip);
+
+	ver_msg.recv_services = 0;
+	if (family == AF_INET6) {
+		memcpy(&ver_msg.recv_ip, &((struct sockaddr_in6 *)sa)->sin6_addr, sizeof(struct in6_addr));
+	} else {
+		memset(&ver_msg.recv_ip, 0, sizeof(ver_msg.recv_ip));
+		memset(((uint8_t *)&ver_msg.recv_ip) + 4, 0xff, 2);
+		i = htobe32(((struct sockaddr_in *)sa)->sin_addr.s_addr);
+		memcpy(&ver_msg.recv_ip, &i, sizeof(i));
+	}
 	ver_msg.recv_port = MAINNET_PORT;
-	ver_msg.trans_services = ver_msg.services;
-	marshal(&in6_addr, ver_msg.trans_ip);
-	ver_msg.trans_port = MAINNET_PORT; // FIXME Port we connected _from_?
-	ver_msg.nonce = ((uint64_t)rand() << 32) | (uint64_t)rand();
+
+	ver_msg.trans_services = 0;
+	memset(((uint8_t *)&ver_msg.trans_ip) + 4, 0xff, 2);
+	i = INADDR_LOOPBACK;
+	memcpy(&ver_msg.trans_ip, &i, sizeof(i));
+	ver_msg.trans_port = MAINNET_PORT;
+
+	ver_msg.nonce = 0;
 	ver_msg.user_agent_len = sizeof(user_agent) - 1;
 	ver_msg.user_agent = user_agent;
 	ver_msg.start_height = 0;
@@ -106,6 +117,13 @@ say_hello(int family, const struct sockaddr *sa, socklen_t salen, int peer)
 	error = write_version_msg(&ver_msg, peer);
 	if (error)
 		(void)fprintf(stderr, "error: write_version_msg\n"), exit(1);
+
+	memset(&ver_msg, 0, sizeof(ver_msg));
+	error = read_version_msg(peer, &ver_msg);
+	if (error)
+		(void)fprintf(stderr, "error: read_version_msg: error %d\n", error), exit(1);
+
+	printf("Peer's software: %*s\n", (int)ver_msg.user_agent_len, ver_msg.user_agent);
 }
 
 void
@@ -130,8 +148,6 @@ probe_peer(int family, const struct sockaddr *sa, socklen_t salen)
 		perror("connect"), exit(1);
 
 	say_hello(family, sa, salen, peer);
-
-	sleep(5);
 }
 
 int
@@ -140,26 +156,18 @@ main(int argc, char **argv)
 	(void)argc;
 	(void)argv;
 
+	openlog("btcnode", LOG_PID | LOG_NDELAY | LOG_PERROR, LOG_USER);
+
 	srand(time(NULL) ^ getpid());
-
-	int fd;
-
-	fd = open("btcnode.out", O_WRONLY | O_TRUNC | O_CREAT, 0600);
-	if (fd == -1)
-		return 1;
 
 	struct addrinfo *addrs = discover_peers();
 	for (struct addrinfo *ai = addrs; ai != NULL; ai = ai->ai_next) {
-		if (ai->ai_family != AF_INET6)
+		if (ai->ai_family == AF_INET6)
 			continue;
-		// FIXME Convert peer addr to IPv6 if it's IPv4 in say_hello
-		//probe_peer(ai->ai_family, ai->ai_addr, ai->ai_addrlen);
-		say_hello(ai->ai_family, ai->ai_addr, ai->ai_addrlen, fd);
+		probe_peer(ai->ai_family, ai->ai_addr, ai->ai_addrlen);
 		break;
 	}
 	freeaddrinfo(addrs);
-
-	close(fd);
 
 	return 0;
 }

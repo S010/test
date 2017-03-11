@@ -1,21 +1,23 @@
-#include <stdint.h>
-#include <openssl/sha.h>
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
 
 #include <unistd.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <openssl/sha.h>
 
 #include "protocol.h"
 
 static int
 calc_msg_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
 {
-	uint8_t hash[2][SHA_DIGEST_LENGTH];
+	uint8_t hash[2][SHA256_DIGEST_LENGTH];
 
 	for (int i = 0; i < 2; ++i) {
 		SHA256(in, in_size, hash[i]);
 		in = hash[i];
-		in_size = sizeof(hash[i]);
+		in_size = SHA256_DIGEST_LENGTH;
 	}
-
 	memcpy(out, hash[1], 4);
 
 	return 0;
@@ -59,11 +61,11 @@ marshal_version_msg(const struct version_msg *msg, uint8_t *out)
 	off += marshal(msg->services, out + off);
 	off += marshal(msg->timestamp, out + off);
 	off += marshal(msg->recv_services, out + off);
-	off += marshal_bytes(msg->recv_ip, sizeof(msg->recv_ip), out + off);
-	off += marshal(msg->recv_port, out + off);
+	off += marshal(&msg->recv_ip, out + off);
+	off += marshal(htons(msg->recv_port), out + off);
 	off += marshal(msg->trans_services, out + off);
-	off += marshal_bytes(msg->trans_ip, sizeof(msg->trans_ip), out + off);
-	off += marshal(msg->trans_port, out + off);
+	off += marshal(&msg->trans_ip, out + off);
+	off += marshal(htons(msg->trans_port), out + off);
 	off += marshal(msg->nonce, out + off);
 	off += marshal(msg->user_agent_len, out + off);
 	off += marshal_bytes(msg->user_agent, msg->user_agent_len, out + off);
@@ -86,8 +88,9 @@ marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out)
 size_t
 marshal_in6_addr(const struct in6_addr *addr, uint8_t *out)
 {
-	for (int i = 15; i >= 0; --i)
+	for (int i = 15; i >= 0; --i) {
 		*out++ = ((const uint8_t *)addr)[i];
+	}
 	return 16;
 }
 
@@ -124,5 +127,96 @@ write_version_msg(const struct version_msg *msg, int fd)
 		return n;
 	else if ((size_t)n != sizeof(buf))
 		return -1;
+	return 0;
+}
+
+static int
+read_msg_hdr(int fd, struct msg_hdr *hdr)
+{
+	ssize_t n;
+	uint8_t buf[MSG_HDR_LEN];
+	uint8_t *in = buf;
+
+	n = read(fd, buf, sizeof(buf));
+	if (n == -1) {
+		syslog(LOG_ERR, "%s(): read failed, errno %d", __func__, errno);
+		return n;
+	} else if (n != sizeof(buf)) {
+		syslog(LOG_ERR, "%s(): short read of %d bytes", __func__, (int)n);
+		return -1;
+	}
+
+	in += unmarshal_bytes(in, sizeof(hdr->start), hdr->start);
+	in += unmarshal_bytes(in, sizeof(hdr->command), hdr->command);
+	in += unmarshal_uint32(in, &hdr->payload_size);
+	in += unmarshal_bytes(in, sizeof(hdr->checksum), hdr->checksum);
+
+	return 0;
+}
+
+int
+read_version_msg(int fd, struct version_msg *msg)
+{
+	ssize_t n;
+	struct msg_hdr hdr;
+
+	n = read_msg_hdr(fd, &hdr);
+	if (n != 0) {
+		syslog(LOG_ERR, "%s(): read_msg_hdr failed", __func__);
+		return n;
+	}
+
+	if (hdr.payload_size < MIN_VERSION_MSG_LEN) {
+		syslog(LOG_ERR, "%s(): payload_size is too small at %u bytes", __func__, (unsigned)hdr.payload_size);
+		return 1;
+	}
+	if (hdr.payload_size > 256) {
+		syslog(LOG_ERR, "%s(): payload_size too great at %u bytes", __func__, (unsigned)hdr.payload_size);
+		return 2;
+	}
+
+	uint8_t buf[hdr.payload_size];
+	uint8_t checksum[4];
+	uint8_t *in = buf;
+
+	n = read(fd, buf, hdr.payload_size);
+	if (n == -1) {
+		syslog(LOG_ERR, "%s(): read failed, errno %d", __func__, errno);
+		return -1;
+	}
+	if (n != hdr.payload_size) {
+		syslog(LOG_ERR, "%s(): short read of %u bytes", __func__, (unsigned)n);
+		return -1;
+	}
+	in += unmarshal(in, (uint32_t *)&msg->version);
+	in += unmarshal(in, &msg->services);
+	in += unmarshal(in, &msg->timestamp);
+	in += unmarshal(in, &msg->recv_services);
+	in += unmarshal_bytes(in, sizeof(msg->recv_ip), &msg->recv_ip);
+	in += unmarshal(in, &msg->recv_port);
+	in += unmarshal(in, &msg->trans_services);
+	in += unmarshal_bytes(in, sizeof(msg->trans_ip), &msg->trans_ip);
+	in += unmarshal(in, &msg->trans_port);
+	in += unmarshal(in, &msg->nonce);
+	in += unmarshal(in, &msg->user_agent_len);
+	if (msg->user_agent_len >= 0xfd) {
+		syslog(LOG_ERR, "%s(): user agent string is longer than we can handle", __func__);
+		return 3;
+	}
+	if ((hdr.payload_size - (in - buf) - 4 - 1) != msg->user_agent_len) {
+		syslog(LOG_ERR, "%s(): the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
+		return 4;
+	}
+	in += unmarshal_varstr(in, msg->user_agent_len, &msg->user_agent);
+	in += unmarshal(in, (uint32_t *)&msg->start_height);
+	in += unmarshal(in, &msg->relay);
+
+	calc_msg_checksum(buf, hdr.payload_size, checksum);
+
+	if (memcmp(checksum, hdr.checksum, 4) != 0) {
+		syslog(LOG_ERR, "%s(): the payload chekcsum appears to be wrong", __func__);
+		return 5;
+	}
+
 	return 0;
 }
