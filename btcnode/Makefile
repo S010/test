@@ -12,14 +12,17 @@ LDFLAGS += \
 
 .PHONY: all test clean
 
-all: btcnode
+all: bin/ bin/btcnode
 
-test: btcnode
-	./btcnode
+bin/:
+	mkdir -p bin
+
+bin/btcnode: src/main.o src/protocol.o
+	$(CC) $(LDFLAGS) -o $@ $^
+
+test: bin/btcnode
+	./bin/btcnode
 	hexdump -C btcnode.out
 
-btcnode: main.o
-	$(CC) $(LDFLAGS) -o $@ $<
-
 clean:
-	rm -f *.o btcnode
+	rm -rf src/*.o bin btcnode.out
