@@ -40,7 +40,7 @@ struct version_msg {
 	uint64_t nonce; // 8
 
 	uint8_t user_agent_len; // 1+
-	const char *user_agent; // ???
+	char user_agent[0xfd - 1]; // ???
 
 	int32_t start_height; // 4
 
@@ -117,19 +117,6 @@ inline size_t
 unmarshal_bytes(const void *in, size_t len, void *out)
 {
 	memcpy(out, in, len);
-	return len;
-}
-
-inline size_t
-unmarshal_varstr(const uint8_t *in, size_t len, void *out_ptr)
-{
-	char **out = (char **)out_ptr;
-	*out = malloc(len);
-	if (*out == NULL) {
-		syslog(LOG_CRIT, "failed to allocate memory for var string, errno %d", errno);
-		exit(1);
-	}
-	memcpy(*out, in, len);
 	return len;
 }
 

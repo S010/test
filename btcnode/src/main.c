@@ -110,7 +110,7 @@ say_hello(int family, const struct sockaddr *sa, socklen_t salen, int peer)
 
 	ver_msg.nonce = 0;
 	ver_msg.user_agent_len = sizeof(user_agent) - 1;
-	ver_msg.user_agent = user_agent;
+	strncpy(ver_msg.user_agent, user_agent, sizeof(ver_msg.user_agent));
 	ver_msg.start_height = 0;
 	ver_msg.relay = true;
 

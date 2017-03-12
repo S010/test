@@ -207,7 +207,7 @@ read_version_msg(int fd, struct version_msg *msg)
 		syslog(LOG_ERR, "%s(): the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
 		return 4;
 	}
-	in += unmarshal_varstr(in, msg->user_agent_len, &msg->user_agent);
+	in += unmarshal_bytes(in, msg->user_agent_len, msg->user_agent);
 	in += unmarshal(in, (uint32_t *)&msg->start_height);
 	in += unmarshal(in, &msg->relay);
 
