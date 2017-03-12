@@ -38,6 +38,79 @@
 
 #include "protocol.h"
 
+/*
+ * A resizable data buffer.
+ */
+struct buffer {
+	uint8_t *ptr;
+	size_t len;
+	size_t size;
+};
+
+/*
+ * The state of protocol between us and a peer.
+ */
+struct protocol {
+	int conn;
+	enum protocol_state {
+		PROTOCOL_IDLE,
+		PROTOCOL_WAIT_HDR,
+		PROTOCOL_WAIT_MSG,
+		PROTOCOL_HAVE_MSG
+	} state;
+	struct msg_hdr hdr;
+	struct buffer buf;
+};
+
+/*
+ * A peer node in the Bitcoin P2P network.
+ */
+struct peer {
+	enum peer_state {
+		PEER_DISCONNECTED,
+		PEER_VERSION,
+		PEER_VERACK,
+		PEER_CONNECTED
+	} state;
+	struct sockaddr_in6 addr;
+	struct version_msg desc;
+	struct protocol proto;
+	struct peer *next;
+};
+
+inline void *
+xcalloc(size_t n, size_t size)
+{
+	void *ptr = calloc(n, size);
+	if (ptr == NULL) {
+		syslog(LOG_CRIT, "failed to allocate %lu * %lu bytes of memory", n, size);
+		exit(1);
+	}
+	return ptr;
+}
+
+inline void *
+xrealloc(void *ptr, size_t size)
+{
+	void *tmp = realloc(ptr, size);
+	if (tmp == NULL) {
+		syslog(LOG_CRIT, "failed to reallocate %lu bytes of memory", size);
+		exit(1);
+	}
+	return tmp;
+}
+
+inline void *
+xmalloc(size_t size)
+{
+	void *ptr = malloc(size);
+	if (ptr == NULL) {
+		syslog(LOG_CRIT, "failed to allocate %lu bytes of memory", size);
+		exit(1);
+	}
+	return ptr;
+}
+
 struct addrinfo *
 discover_peers(void)
 {
