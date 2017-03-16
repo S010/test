@@ -106,7 +106,7 @@ peer_send_version(struct peer *peer)
 	msg.user_agent_len = sizeof(self_user_agent) - 1;
 	strcpy(msg.user_agent, self_user_agent);
 	msg.start_height = 0;
-	msg.relay = false; // FIXME Set to true and handle incoming transactions.
+	msg.relay = true;
 
 	error = write_version_msg(&msg, peer->proto.conn);
 	if (error) {
