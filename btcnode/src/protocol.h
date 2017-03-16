@@ -32,6 +32,15 @@
 
 #define NODE_NETWORK 0x01
 
+enum msg_types {
+	MSG_UNKNOWN,
+	MSG_VERSION,
+	MSG_VERACK,
+	MSG_PING,
+	MSG_PONG,
+	MSG_ADDR
+};
+
 struct msg_hdr {
 	uint8_t start[4];
 	char command[12];
@@ -40,18 +49,20 @@ struct msg_hdr {
 };
 #define MSG_HDR_LEN ((size_t)(4 + 12 + sizeof(uint32_t) + 4))
 
+struct netaddr {
+	uint32_t timestamp;
+	uint64_t services;
+	struct in6_addr ip; // 16
+	uint16_t port;
+};
+
 struct version_msg {
 	int32_t version; // 4 bytes
 	uint64_t services; // 8
 	uint64_t timestamp; // 8
 
-	uint64_t recv_services; // 8
-	struct in6_addr recv_ip; // 16
-	uint16_t recv_port; // 2
-
-	uint64_t trans_services; // 8
-	struct in6_addr trans_ip; // 16
-	uint16_t trans_port; // 2
+	struct netaddr recv_addr;
+	struct netaddr trans_addr;
 
 	uint64_t nonce; // 8
 
@@ -63,6 +74,49 @@ struct version_msg {
 	uint8_t relay; // 1
 };
 #define MIN_VERSION_MSG_LEN 86
+
+struct ping_msg {
+	uint64_t nonce;
+};
+#define PING_MSG_LEN sizeof(uint64_t)
+
+struct addr_msg {
+	uint64_t count;
+	struct netaddr addr_list[];
+};
+#define MAX_ADDR_MSG_LIST 1000
+#define ADDR_MSG_LIST_ELEM_LEN (sizeof(uint32_t) + sizeof(uint64_t) + 16 + 2)
+#define MAX_ADDR_MSG_LEN (9 + MAX_ADDR_MSG_LIST * ADDR_MSG_LIST_ELEM_LEN)
+
+union message {
+	struct version_msg version;
+	struct ping_msg ping;
+	struct addr_msg addr;
+};
+
+/*
+ * A resizable data buffer.
+ */
+struct buffer {
+	uint8_t *ptr;
+	size_t len;
+	size_t size;
+};
+
+/*
+ * The state of protocol between us and a peer.
+ */
+struct protocol {
+	int conn;
+	enum protocol_state {
+		PROTOCOL_IDLE,
+		PROTOCOL_WAIT_HDR,
+		PROTOCOL_WAIT_MSG,
+		PROTOCOL_HAVE_MSG
+	} state;
+	struct msg_hdr hdr;
+	struct buffer buf;
+};
 
 inline size_t
 marshal_uint8(uint8_t i, uint8_t *out)
@@ -110,6 +164,7 @@ marshal_bytes(const void *in, size_t in_size, void *out)
 size_t marshal_version_msg(const struct version_msg *msg, uint8_t *out);
 size_t marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out);
 size_t marshal_in6_addr(const struct in6_addr *addr, uint8_t *out);
+size_t marshal_ping_msg(const struct ping_msg *msg, uint8_t *out);
 
 #define marshal(x, y) \
 	_Generic((x), \
@@ -119,6 +174,8 @@ size_t marshal_in6_addr(const struct in6_addr *addr, uint8_t *out);
 		const struct version_msg *: marshal_version_msg, \
 		struct in6_addr *: marshal_in6_addr, \
 		const struct in6_addr *: marshal_in6_addr, \
+		struct ping_msg *: marshal_ping_msg, \
+		const struct ping_msg *: marshal_ping_msg, \
 		int32_t: marshal_uint32, \
 		uint32_t: marshal_uint32, \
 		int16_t: marshal_uint16, \
@@ -179,5 +236,12 @@ unmarshal_uint8(const uint8_t *in, uint8_t *out)
 
 int write_version_msg(const struct version_msg *msg, int fd);
 int read_version_msg(int fd, struct version_msg *msg);
+
+int write_verack_msg(int fd);
+int read_verack_msg(int fd);
+
+int read_message(int fd, enum msg_types *type, union message **msg);
+
+int write_pong_msg(int fd, struct ping_msg *msg);
 
 #endif

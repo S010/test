@@ -14,21 +14,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define _DEFAULT_SOURCE
-#define _BSD_SOURCE
-
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <openssl/sha.h>
 
 #include "protocol.h"
+#include "xmalloc.h"
 
 static int
 calc_msg_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
 {
-	uint8_t hash[2][SHA256_DIGEST_LENGTH];
+	if (in_size == 0) {
+		out[0] = 0x5d;
+		out[1] = 0xf6;
+		out[2] = 0xe0;
+		out[3] = 0xe2;
+		return 0;
+	}
 
+	uint8_t hash[2][SHA256_DIGEST_LENGTH];
 	for (int i = 0; i < 2; ++i) {
 		SHA256(in, in_size, hash[i]);
 		in = hash[i];
@@ -76,18 +81,56 @@ marshal_version_msg(const struct version_msg *msg, uint8_t *out)
 	off += marshal(msg->version, out + off);
 	off += marshal(msg->services, out + off);
 	off += marshal(msg->timestamp, out + off);
-	off += marshal(msg->recv_services, out + off);
-	off += marshal(&msg->recv_ip, out + off);
-	off += marshal(htons(msg->recv_port), out + off);
-	off += marshal(msg->trans_services, out + off);
-	off += marshal(&msg->trans_ip, out + off);
-	off += marshal(htons(msg->trans_port), out + off);
+	off += marshal(msg->recv_addr.services, out + off);
+	off += marshal(&msg->recv_addr.ip, out + off);
+	off += marshal(htons(msg->recv_addr.port), out + off);
+	off += marshal(msg->trans_addr.services, out + off);
+	off += marshal(&msg->trans_addr.ip, out + off);
+	off += marshal(htons(msg->trans_addr.port), out + off);
 	off += marshal(msg->nonce, out + off);
 	off += marshal(msg->user_agent_len, out + off);
 	off += marshal_bytes(msg->user_agent, msg->user_agent_len, out + off);
 	off += marshal(msg->start_height, out + off);
 	off += marshal(msg->relay, out + off);
 	return off;
+}
+
+int
+unmarshal_version_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct version_msg *msg)
+{
+	const uint8_t *in = payload;
+
+	in += unmarshal(in, (uint32_t *)&msg->version);
+	in += unmarshal(in, &msg->services);
+	in += unmarshal(in, &msg->timestamp);
+	in += unmarshal(in, &msg->recv_addr.services);
+	in += unmarshal_bytes(in, sizeof(msg->recv_addr.ip), &msg->recv_addr.ip);
+	in += unmarshal(in, &msg->recv_addr.port);
+	in += unmarshal(in, &msg->trans_addr.services);
+	in += unmarshal_bytes(in, sizeof(msg->trans_addr.ip), &msg->trans_addr.ip);
+	in += unmarshal(in, &msg->trans_addr.port);
+	in += unmarshal(in, &msg->nonce);
+	in += unmarshal(in, &msg->user_agent_len);
+	if (msg->user_agent_len >= 0xfd) {
+		syslog(LOG_ERR, "%s(): user agent string is longer than we can handle", __func__);
+		return -1;
+	}
+	if ((hdr->payload_size - (in - payload) - 4 - 1) != msg->user_agent_len) {
+		syslog(LOG_ERR, "%s(): the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
+		return -1;
+	}
+	in += unmarshal_bytes(in, msg->user_agent_len, msg->user_agent);
+	in += unmarshal(in, (uint32_t *)&msg->start_height);
+	in += unmarshal(in, &msg->relay);
+
+	uint8_t checksum[4];
+	calc_msg_checksum(payload, hdr->payload_size, checksum);
+	if (memcmp(checksum, hdr->checksum, sizeof(checksum)) != 0) {
+		syslog(LOG_ERR, "%s(): the message checksum is wrong", __func__);
+		return -1;
+	}
+
+	return 0;
 }
 
 size_t
@@ -170,6 +213,99 @@ read_msg_hdr(int fd, struct msg_hdr *hdr)
 	return 0;
 }
 
+static enum msg_types
+get_msg_type(const struct msg_hdr *hdr)
+{
+	static const struct {
+		const char *name;
+		size_t len;
+		enum msg_types type;
+	} commands[] = {
+		#define Y(x, y) { x, sizeof(x) - 1, y }
+		Y("version", MSG_VERSION),
+		Y("verack", MSG_VERACK),
+		Y("addr", MSG_ADDR),
+		Y("ping", MSG_PING),
+		Y("pong", MSG_PONG),
+		Y("addr", MSG_ADDR),
+		#undef Y
+		{ NULL, 0, MSG_UNKNOWN }
+	}, *cmd;
+
+	for (cmd = commands; cmd->type != MSG_UNKNOWN; ++cmd) {
+		if (memcmp(cmd->name, hdr->command, cmd->len) == 0)
+			break;
+	}
+	return cmd->type;
+}
+
+size_t
+marshal_ping_msg(const struct ping_msg *msg, uint8_t *out)
+{
+	return marshal(msg->nonce, out);
+}
+
+int
+unmarshal_ping_msg(const struct msg_hdr *hdr, uint8_t *payload, struct ping_msg *msg)
+{
+	(void)hdr;
+	unmarshal(payload, &msg->nonce);
+	return 0;
+}
+
+int
+read_message(int fd, enum msg_types *type, union message **msg)
+{
+	struct msg_hdr hdr;
+	ssize_t n;
+
+	n = read_msg_hdr(fd, &hdr);
+	if (n != 0) {
+		syslog(LOG_ERR, "%s(): failed to read message header", __func__);
+		return -1;
+	}
+
+	*type = get_msg_type(&hdr);
+	uint8_t *buf = xmalloc(hdr.payload_size);
+
+	n = read(fd, buf, hdr.payload_size);
+	if (n < 0) {
+		free(buf);
+		syslog(LOG_ERR, "%s(): failed to read message payload from peer, errno %d", __func__, errno);
+	} else if (n != hdr.payload_size) {
+		free(buf);
+		syslog(LOG_ERR, "%s(): failed to read message payload from peer, short read", __func__);
+	}
+
+	int error = 0;
+	switch (*type) {
+	case MSG_VERSION:
+		*msg = xmalloc(sizeof((*msg)->version));
+		error = unmarshal_version_msg(&hdr, buf, &(*msg)->version);
+		break;
+	case MSG_VERACK:
+		free(buf);
+		break;
+	case MSG_PING:
+	case MSG_PONG:
+		*msg = xmalloc(sizeof((*msg)->ping));
+		error = unmarshal_ping_msg(&hdr, buf, &(*msg)->ping);
+		break;
+	case MSG_ADDR:
+		// FIXME
+		break;
+	default:
+		break;
+	}
+
+	free(buf);
+
+	if (error)
+		syslog(LOG_ERR, "%s(): failed to unmarshal message type %d", __func__, *type);
+
+	return error;
+}
+
 int
 read_version_msg(int fd, struct version_msg *msg)
 {
@@ -207,12 +343,12 @@ read_version_msg(int fd, struct version_msg *msg)
 	in += unmarshal(in, (uint32_t *)&msg->version);
 	in += unmarshal(in, &msg->services);
 	in += unmarshal(in, &msg->timestamp);
-	in += unmarshal(in, &msg->recv_services);
-	in += unmarshal_bytes(in, sizeof(msg->recv_ip), &msg->recv_ip);
-	in += unmarshal(in, &msg->recv_port);
-	in += unmarshal(in, &msg->trans_services);
-	in += unmarshal_bytes(in, sizeof(msg->trans_ip), &msg->trans_ip);
-	in += unmarshal(in, &msg->trans_port);
+	in += unmarshal(in, &msg->recv_addr.services);
+	in += unmarshal_bytes(in, sizeof(msg->recv_addr.ip), &msg->recv_addr.ip);
+	in += unmarshal(in, &msg->recv_addr.port);
+	in += unmarshal(in, &msg->trans_addr.services);
+	in += unmarshal_bytes(in, sizeof(msg->trans_addr.ip), &msg->trans_addr.ip);
+	in += unmarshal(in, &msg->trans_addr.port);
 	in += unmarshal(in, &msg->nonce);
 	in += unmarshal(in, &msg->user_agent_len);
 	if (msg->user_agent_len >= 0xfd) {
@@ -234,5 +370,61 @@ read_version_msg(int fd, struct version_msg *msg)
 		return 5;
 	}
 
+	return 0;
+}
+
+int
+write_verack_msg(int fd)
+{
+	struct msg_hdr hdr;
+	uint8_t buf[MSG_HDR_LEN];
+
+	fill_msg_hdr(MAINNET_START, "verack", NULL, 0, &hdr);
+	marshal(&hdr, buf);
+
+	int n = write(fd, buf, sizeof(buf));
+	if (n < 0)
+		return n;
+	else if ((size_t)n != sizeof(buf))
+		return -1;
+	return 0;
+}
+
+int
+read_verack_msg(int fd)
+{
+	static const char verack[] = "verack";
+	struct msg_hdr hdr;
+	int error;
+
+	error = read_msg_hdr(fd, &hdr);
+	if (error) {
+		syslog(LOG_ERR, "%s(): failed to read verack message header", __func__);
+		return error;
+	}
+
+	if (memcmp(hdr.command, verack, sizeof(verack) - 1) == 0)
+		return 0;
+	else {
+		syslog(LOG_ERR, "%s(): the received message header is not verack", __func__);
+		return 1;
+	}
+}
+
+int
+write_pong_msg(int fd, struct ping_msg *msg)
+{
+	uint8_t buf[MSG_HDR_LEN + PING_MSG_LEN];
+	struct msg_hdr hdr;
+
+	marshal(msg, buf + MSG_HDR_LEN);
+	fill_msg_hdr(MAINNET_START, "pong", buf + MSG_HDR_LEN, PING_MSG_LEN, &hdr);
+	marshal(&hdr, buf);
+
+	int n = write(fd, buf, sizeof(buf));
+	if (n < 0)
+		return n;
+	else if ((size_t)n != sizeof(buf))
+		return -1;
 	return 0;
 }
