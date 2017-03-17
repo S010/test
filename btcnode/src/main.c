@@ -57,7 +57,6 @@ main(int argc, char **argv)
 		enum msg_types type;
 		union message *msg = NULL;
 		while (read_message(peer->proto.conn, &type, &msg) == 0) {
-			syslog(LOG_DEBUG, "%s(): got message of type %d", __func__, type);
 			switch (type) {
 			case MSG_PING:
 				write_pong_msg(peer->proto.conn, &msg->ping);

@@ -74,6 +74,70 @@ calc_version_msg_len(const struct version_msg *msg)
 	return len;
 }
 
+static int
+fill_msg_hdr(
+    const uint8_t *start,
+    const char *command,
+    const void *payload,
+    size_t payload_size,
+    struct msg_hdr *hdr)
+{
+	memcpy(hdr->start, start, sizeof(hdr->start));
+	memset(hdr->command, 0, sizeof(hdr->command));
+	strcpy(hdr->command, command);
+	hdr->payload_size = payload_size;
+	calc_msg_checksum(payload, payload_size, hdr->checksum);
+
+	return 0;
+}
+
+static int
+read_msg_hdr(int fd, struct msg_hdr *hdr)
+{
+	ssize_t n;
+	uint8_t buf[MSG_HDR_LEN];
+	uint8_t *in = buf;
+
+	n = read(fd, buf, sizeof(buf));
+	if (n == -1) {
+		syslog(LOG_ERR, "%s: read failed, errno %d", __func__, errno);
+		return n;
+	} else if (n != sizeof(buf)) {
+		syslog(LOG_ERR, "%s: short read of %d bytes", __func__, (int)n);
+		return -1;
+	}
+
+	unmarshal(in, hdr);
+
+	return 0;
+}
+
+static enum msg_types
+get_msg_type(const struct msg_hdr *hdr)
+{
+	static const struct {
+		const char *name;
+		size_t len;
+		enum msg_types type;
+	} commands[] = {
+		#define Y(x, y) { x, sizeof(x) - 1, y }
+		Y("version", MSG_VERSION),
+		Y("verack", MSG_VERACK),
+		Y("addr", MSG_ADDR),
+		Y("ping", MSG_PING),
+		Y("pong", MSG_PONG),
+		Y("addr", MSG_ADDR),
+		#undef Y
+		{ NULL, 0, MSG_UNKNOWN }
+	}, *cmd;
+
+	for (cmd = commands; cmd->type != MSG_UNKNOWN; ++cmd) {
+		if (memcmp(cmd->name, hdr->command, cmd->len) == 0)
+			break;
+	}
+	return cmd->type;
+}
+
 size_t
 marshal_version_msg(const struct version_msg *msg, uint8_t *out)
 {
@@ -112,11 +176,11 @@ unmarshal_version_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	in += unmarshal(in, &msg->nonce);
 	in += unmarshal(in, &msg->user_agent_len);
 	if (msg->user_agent_len >= 0xfd) {
-		syslog(LOG_ERR, "%s(): user agent string is longer than we can handle", __func__);
+		syslog(LOG_ERR, "%s: user agent string is longer than we can handle", __func__);
 		return -1;
 	}
 	if ((hdr->payload_size - (in - payload) - 4 - 1) != msg->user_agent_len) {
-		syslog(LOG_ERR, "%s(): the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
+		syslog(LOG_ERR, "%s: the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
 		return -1;
 	}
 	in += unmarshal_bytes(in, msg->user_agent_len, msg->user_agent);
@@ -126,7 +190,7 @@ unmarshal_version_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	uint8_t checksum[4];
 	calc_msg_checksum(payload, hdr->payload_size, checksum);
 	if (memcmp(checksum, hdr->checksum, sizeof(checksum)) != 0) {
-		syslog(LOG_ERR, "%s(): the message checksum is wrong", __func__);
+		syslog(LOG_ERR, "%s: the message checksum is wrong", __func__);
 		return -1;
 	}
 
@@ -145,29 +209,37 @@ marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out)
 }
 
 size_t
+unmarshal_msg_hdr(const uint8_t *in, struct msg_hdr *hdr)
+{
+	size_t off = 0;
+	off += unmarshal_bytes(in + off, sizeof(hdr->start), hdr->start);
+	off += unmarshal_bytes(in + off, sizeof(hdr->command), hdr->command);
+	off += unmarshal(in + off, &hdr->payload_size);
+	off += unmarshal_bytes(in + off, sizeof(hdr->checksum), hdr->checksum);
+	return off;
+}
+
+size_t
+marshal_ping_msg(const struct ping_msg *msg, uint8_t *out)
+{
+	return marshal(msg->nonce, out);
+}
+
+int
+unmarshal_ping_msg(const struct msg_hdr *hdr, uint8_t *payload, struct ping_msg *msg)
+{
+	(void)hdr;
+	unmarshal(payload, &msg->nonce);
+	return 0;
+}
+
+size_t
 marshal_in6_addr(const struct in6_addr *addr, uint8_t *out)
 {
 	for (int i = 15; i >= 0; --i) {
 		*out++ = ((const uint8_t *)addr)[i];
 	}
 	return 16;
-}
-
-static int
-fill_msg_hdr(
-    const uint8_t *start,
-    const char *command,
-    const void *payload,
-    size_t payload_size,
-    struct msg_hdr *hdr)
-{
-	memcpy(hdr->start, start, sizeof(hdr->start));
-	memset(hdr->command, 0, sizeof(hdr->command));
-	strcpy(hdr->command, command);
-	hdr->payload_size = payload_size;
-	calc_msg_checksum(payload, payload_size, hdr->checksum);
-
-	return 0;
 }
 
 int
@@ -189,123 +261,6 @@ write_version_msg(const struct version_msg *msg, int fd)
 	return 0;
 }
 
-static int
-read_msg_hdr(int fd, struct msg_hdr *hdr)
-{
-	ssize_t n;
-	uint8_t buf[MSG_HDR_LEN];
-	uint8_t *in = buf;
-
-	n = read(fd, buf, sizeof(buf));
-	if (n == -1) {
-		syslog(LOG_ERR, "%s(): read failed, errno %d", __func__, errno);
-		return n;
-	} else if (n != sizeof(buf)) {
-		syslog(LOG_ERR, "%s(): short read of %d bytes", __func__, (int)n);
-		return -1;
-	}
-
-	in += unmarshal_bytes(in, sizeof(hdr->start), hdr->start);
-	in += unmarshal_bytes(in, sizeof(hdr->command), hdr->command);
-	in += unmarshal_uint32(in, &hdr->payload_size);
-	in += unmarshal_bytes(in, sizeof(hdr->checksum), hdr->checksum);
-
-	return 0;
-}
-
-static enum msg_types
-get_msg_type(const struct msg_hdr *hdr)
-{
-	static const struct {
-		const char *name;
-		size_t len;
-		enum msg_types type;
-	} commands[] = {
-		#define Y(x, y) { x, sizeof(x) - 1, y }
-		Y("version", MSG_VERSION),
-		Y("verack", MSG_VERACK),
-		Y("addr", MSG_ADDR),
-		Y("ping", MSG_PING),
-		Y("pong", MSG_PONG),
-		Y("addr", MSG_ADDR),
-		#undef Y
-		{ NULL, 0, MSG_UNKNOWN }
-	}, *cmd;
-
-	for (cmd = commands; cmd->type != MSG_UNKNOWN; ++cmd) {
-		if (memcmp(cmd->name, hdr->command, cmd->len) == 0)
-			break;
-	}
-	return cmd->type;
-}
-
-size_t
-marshal_ping_msg(const struct ping_msg *msg, uint8_t *out)
-{
-	return marshal(msg->nonce, out);
-}
-
-int
-unmarshal_ping_msg(const struct msg_hdr *hdr, uint8_t *payload, struct ping_msg *msg)
-{
-	(void)hdr;
-	unmarshal(payload, &msg->nonce);
-	return 0;
-}
-
-int
-read_message(int fd, enum msg_types *type, union message **msg)
-{
-	struct msg_hdr hdr;
-	ssize_t n;
-
-	n = read_msg_hdr(fd, &hdr);
-	if (n != 0) {
-		syslog(LOG_ERR, "%s(): failed to read message header", __func__);
-		return -1;
-	}
-
-	*type = get_msg_type(&hdr);
-	uint8_t *buf = xmalloc(hdr.payload_size);
-
-	n = read(fd, buf, hdr.payload_size);
-	if (n < 0) {
-		free(buf);
-		syslog(LOG_ERR, "%s(): failed to read message payload from peer, errno %d", __func__, errno);
-	} else if (n != hdr.payload_size) {
-		free(buf);
-		syslog(LOG_ERR, "%s(): failed to read message payload from peer, short read", __func__);
-	}
-
-	int error = 0;
-	switch (*type) {
-	case MSG_VERSION:
-		*msg = xmalloc(sizeof((*msg)->version));
-		error = unmarshal_version_msg(&hdr, buf, &(*msg)->version);
-		break;
-	case MSG_VERACK:
-		free(buf);
-		break;
-	case MSG_PING:
-	case MSG_PONG:
-		*msg = xmalloc(sizeof((*msg)->ping));
-		error = unmarshal_ping_msg(&hdr, buf, &(*msg)->ping);
-		break;
-	case MSG_ADDR:
-		// FIXME
-		break;
-	default:
-		break;
-	}
-
-	free(buf);
-
-	if (error)
-		syslog(LOG_ERR, "%s(): failed to unmarshal message type %d", __func__, *type);
-
-	return error;
-}
-
 int
 read_version_msg(int fd, struct version_msg *msg)
 {
@@ -314,16 +269,16 @@ read_version_msg(int fd, struct version_msg *msg)
 
 	n = read_msg_hdr(fd, &hdr);
 	if (n != 0) {
-		syslog(LOG_ERR, "%s(): read_msg_hdr failed", __func__);
+		syslog(LOG_ERR, "%s: read_msg_hdr failed", __func__);
 		return n;
 	}
 
-	if (hdr.payload_size < MIN_VERSION_MSG_LEN) {
-		syslog(LOG_ERR, "%s(): payload_size is too small at %u bytes", __func__, (unsigned)hdr.payload_size);
+	if (hdr.payload_size < VERSION_MSG_MIN_LEN) {
+		syslog(LOG_ERR, "%s: payload_size is too small at %u bytes", __func__, (unsigned)hdr.payload_size);
 		return 1;
 	}
 	if (hdr.payload_size > 256) {
-		syslog(LOG_ERR, "%s(): payload_size too great at %u bytes", __func__, (unsigned)hdr.payload_size);
+		syslog(LOG_ERR, "%s: payload_size too great at %u bytes", __func__, (unsigned)hdr.payload_size);
 		return 2;
 	}
 
@@ -333,11 +288,11 @@ read_version_msg(int fd, struct version_msg *msg)
 
 	n = read(fd, buf, hdr.payload_size);
 	if (n == -1) {
-		syslog(LOG_ERR, "%s(): read failed, errno %d", __func__, errno);
+		syslog(LOG_ERR, "%s: read failed, errno %d", __func__, errno);
 		return -1;
 	}
 	if (n != hdr.payload_size) {
-		syslog(LOG_ERR, "%s(): short read of %u bytes", __func__, (unsigned)n);
+		syslog(LOG_ERR, "%s: short read of %u bytes", __func__, (unsigned)n);
 		return -1;
 	}
 	in += unmarshal(in, (uint32_t *)&msg->version);
@@ -352,11 +307,11 @@ read_version_msg(int fd, struct version_msg *msg)
 	in += unmarshal(in, &msg->nonce);
 	in += unmarshal(in, &msg->user_agent_len);
 	if (msg->user_agent_len >= 0xfd) {
-		syslog(LOG_ERR, "%s(): user agent string is longer than we can handle", __func__);
+		syslog(LOG_ERR, "%s: user agent string is longer than we can handle", __func__);
 		return 3;
 	}
 	if ((hdr.payload_size - (in - buf) - 4 - 1) != msg->user_agent_len) {
-		syslog(LOG_ERR, "%s(): the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
+		syslog(LOG_ERR, "%s: the user agent length is wrong at %u bytes", __func__, msg->user_agent_len);
 		return 4;
 	}
 	in += unmarshal_bytes(in, msg->user_agent_len, msg->user_agent);
@@ -366,11 +321,76 @@ read_version_msg(int fd, struct version_msg *msg)
 	calc_msg_checksum(buf, hdr.payload_size, checksum);
 
 	if (memcmp(checksum, hdr.checksum, 4) != 0) {
-		syslog(LOG_ERR, "%s(): the payload chekcsum appears to be wrong", __func__);
+		syslog(LOG_ERR, "%s: the payload chekcsum appears to be wrong", __func__);
 		return 5;
 	}
 
 	return 0;
+}
+
+int
+read_message(int fd, enum msg_types *type, union message **msg)
+{
+	struct msg_hdr hdr;
+	ssize_t n;
+
+	n = read_msg_hdr(fd, &hdr);
+	if (n != 0) {
+		syslog(LOG_ERR, "%s: failed to read message header", __func__);
+		return -1;
+	}
+
+	if (hdr.payload_size > MSG_HDR_MAX_PAYLOAD_SIZE) {
+		syslog(LOG_ERR, "%s: payload size is greater than max. allowed size at %u", __func__, hdr.payload_size);
+		return -1;
+	}
+
+	*type = get_msg_type(&hdr);
+	uint8_t *buf = xmalloc(hdr.payload_size);
+
+	n = read(fd, buf, hdr.payload_size);
+	if (n < 0) {
+		free(buf);
+		syslog(LOG_ERR, "%s: failed to read message payload from peer, errno %d", __func__, errno);
+	} else if (n != hdr.payload_size) {
+		free(buf);
+		syslog(LOG_ERR, "%s: failed to read message payload from peer, short read", __func__);
+	}
+
+	int error = 0;
+	switch (*type) {
+	case MSG_VERSION:
+		*msg = xmalloc(sizeof((*msg)->version));
+		error = unmarshal_version_msg(&hdr, buf, &(*msg)->version);
+		syslog(LOG_DEBUG, "%s: got version message", __func__);
+		break;
+	case MSG_VERACK:
+		// FIXME Check the checksum in the header.
+		syslog(LOG_DEBUG, "%s: got verack message", __func__);
+		free(buf);
+		break;
+	case MSG_PING:
+	case MSG_PONG:
+		syslog(LOG_DEBUG, "%s: got ping/pong message", __func__);
+		*msg = xmalloc(sizeof((*msg)->ping));
+		error = unmarshal_ping_msg(&hdr, buf, &(*msg)->ping);
+		break;
+	case MSG_ADDR:
+		// FIXME
+		*type = MSG_UNKNOWN;
+		syslog(LOG_DEBUG, "%s: ignored addr message", __func__);
+		break;
+	default:
+		syslog(LOG_DEBUG, "%s: got an unknown messsage, command field is '%*s'", __func__, (int)strnlen(hdr.command, sizeof(hdr.command)), hdr.command);
+		break;
+	}
+
+	free(buf);
+
+	if (error)
+		syslog(LOG_ERR, "%s: failed to unmarshal message type %d", __func__, *type);
+
+	return error;
 }
 
 int
@@ -399,14 +419,14 @@ read_verack_msg(int fd)
 
 	error = read_msg_hdr(fd, &hdr);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to read verack message header", __func__);
+		syslog(LOG_ERR, "%s: failed to read verack message header", __func__);
 		return error;
 	}
 
 	if (memcmp(hdr.command, verack, sizeof(verack) - 1) == 0)
 		return 0;
 	else {
-		syslog(LOG_ERR, "%s(): the received message header is not verack", __func__);
+		syslog(LOG_ERR, "%s: the received message header is not verack", __func__);
 		return 1;
 	}
 }

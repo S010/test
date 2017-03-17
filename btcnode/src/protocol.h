@@ -48,6 +48,7 @@ struct msg_hdr {
 	uint8_t checksum[4];
 };
 #define MSG_HDR_LEN ((size_t)(4 + 12 + sizeof(uint32_t) + 4))
+#define MSG_HDR_MAX_PAYLOAD_SIZE ((1024 * 1024) * 4)
 
 struct netaddr {
 	uint32_t timestamp;
@@ -73,7 +74,7 @@ struct version_msg {
 
 	uint8_t relay; // 1
 };
-#define MIN_VERSION_MSG_LEN 86
+#define VERSION_MSG_MIN_LEN 86
 
 struct ping_msg {
 	uint64_t nonce;
@@ -84,9 +85,9 @@ struct addr_msg {
 	uint64_t count;
 	struct netaddr addr_list[];
 };
-#define MAX_ADDR_MSG_LIST 1000
+#define ADDR_MSG_MAX_LIST 1000
 #define ADDR_MSG_LIST_ELEM_LEN (sizeof(uint32_t) + sizeof(uint64_t) + 16 + 2)
-#define MAX_ADDR_MSG_LEN (9 + MAX_ADDR_MSG_LIST * ADDR_MSG_LIST_ELEM_LEN)
+#define ADDR_MSG_MAX_LEN (9 + ADDR_MSG_MAX_LIST * ADDR_MSG_LIST_ELEM_LEN)
 
 union message {
 	struct version_msg version;
@@ -223,6 +224,8 @@ unmarshal_uint8(const uint8_t *in, uint8_t *out)
 	return 1;
 }
 
+size_t unmarshal_msg_hdr(const uint8_t *in, struct msg_hdr *hdr);
+
 #define unmarshal(x, y) \
 	_Generic((y), \
 		int64_t *: unmarshal_uint64, \
@@ -231,8 +234,11 @@ unmarshal_uint8(const uint8_t *in, uint8_t *out)
 		uint32_t *: unmarshal_uint32, \
 		int16_t *: unmarshal_uint16, \
 		uint16_t *: unmarshal_uint16, \
-		uint8_t *: unmarshal_uint8 \
+		uint8_t *: unmarshal_uint8, \
+		struct msg_hdr *: unmarshal_msg_hdr \
 	)((x), (y))
+
+
 
 int write_version_msg(const struct version_msg *msg, int fd);
 int read_version_msg(int fd, struct version_msg *msg);
@@ -240,8 +246,8 @@ int read_version_msg(int fd, struct version_msg *msg);
 int write_verack_msg(int fd);
 int read_verack_msg(int fd);
 
-int read_message(int fd, enum msg_types *type, union message **msg);
-
 int write_pong_msg(int fd, struct ping_msg *msg);
+
+int read_message(int fd, enum msg_types *type, union message **msg);
 
 #endif

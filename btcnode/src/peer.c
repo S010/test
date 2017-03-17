@@ -24,7 +24,7 @@ discover_peers(void)
 	memset(&hints, 0, sizeof hints);
 	hints.ai_socktype = SOCK_STREAM;
 	if (getaddrinfo(domain_name, NULL, &hints, &addrs) == -1) {
-		syslog(LOG_ERR, "%s(): getaddrinfo failed, errno %d", __func__, errno);
+		syslog(LOG_ERR, "%s: getaddrinfo failed, errno %d", __func__, errno);
 		return NULL;
 	}
 
@@ -110,7 +110,7 @@ peer_send_version(struct peer *peer)
 
 	error = write_version_msg(&msg, peer->proto.conn);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to write version message to peer", __func__);
+		syslog(LOG_ERR, "%s: failed to write version message to peer", __func__);
 		return error;
 	}
 
@@ -150,13 +150,13 @@ peer_connect(struct peer *peer)
 		sa_len = sizeof(sin6);
 		break;
 	default:
-		syslog(LOG_ERR, "%s(): unknown address family %d", __func__, family);
+		syslog(LOG_ERR, "%s: unknown address family %d", __func__, family);
 		return -1;
 	}
 
 	conn = socket(family, SOCK_STREAM, 0);
 	if (conn == -1) {
-		syslog(LOG_WARNING, "%s(): failed to create stream socket for address family %d, errno %d",
+		syslog(LOG_WARNING, "%s: failed to create stream socket for address family %d, errno %d",
 		    __func__, family, errno);
 		return errno;
 	}
@@ -166,9 +166,9 @@ peer_connect(struct peer *peer)
 	inet_ntop(family, family == AF_INET ? (void *)&sin.sin_addr : (void *)&sin6.sin6_addr,
 	    addrstr, sizeof(addrstr));
 
-	syslog(LOG_DEBUG, "%s(): connecting to %s", __func__, addrstr);
+	syslog(LOG_DEBUG, "%s: connecting to %s", __func__, addrstr);
 	if (connect(conn, sa, sa_len) == -1) {
-		syslog(LOG_WARNING, "%s(): failed to connect to %s", __func__, addrstr);
+		syslog(LOG_WARNING, "%s: failed to connect to %s", __func__, addrstr);
 		close(conn);
 		return -1;
 	}
@@ -179,26 +179,26 @@ peer_connect(struct peer *peer)
 
 	error = peer_send_version(peer);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to send version message to peer", __func__);
+		syslog(LOG_ERR, "%s: failed to send version message to peer", __func__);
 		return error;
 	}
 
 	// FIXME Have state aware functions take necessary actions.
 	error = read_version_msg(peer->proto.conn, &peer->version);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to read version message from peer", __func__);
+		syslog(LOG_ERR, "%s: failed to read version message from peer", __func__);
 		return error;
 	}
 
 	error = write_verack_msg(peer->proto.conn);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to send verack message to peer", __func__);
+		syslog(LOG_ERR, "%s: failed to send verack message to peer", __func__);
 		return error;
 	}
 
 	error = read_verack_msg(peer->proto.conn);
 	if (error) {
-		syslog(LOG_ERR, "%s(): failed to read verack message from peer", __func__);
+		syslog(LOG_ERR, "%s: failed to read verack message from peer", __func__);
 		return error;
 	}
 
