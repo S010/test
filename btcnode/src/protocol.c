@@ -21,6 +21,18 @@
 
 #include "protocol.h"
 #include "xmalloc.h"
+#include "util.h"
+
+uint8_t genesis_block_hash[32] = {
+	0x6f, 0xe2, 0x8c, 0x0a,
+	0xb6, 0xf1, 0xb3, 0x72,
+	0xc1, 0xa6, 0xa2, 0x46,
+	0xae, 0x63, 0xf7, 0x4f,
+	0x93, 0x1e, 0x83, 0x65,
+	0xe1, 0x5a, 0x08, 0x9c,
+	0x68, 0xd6, 0x19, 0x00,
+	0x00, 0x00, 0x00, 0x00,
+};
 
 static int
 calc_payload_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
@@ -136,6 +148,7 @@ read_msg_hdr(int fd, struct msg_hdr *hdr)
 	return 0;
 }
 
+// FIXME Have a global string array which exactly matches the msg type enum.
 static enum msg_types
 get_msg_type(const struct msg_hdr *hdr)
 {
@@ -152,6 +165,7 @@ get_msg_type(const struct msg_hdr *hdr)
 		Y("pong", MSG_PONG),
 		Y("addr", MSG_ADDR),
 		Y("inv", MSG_INV),
+		Y("headers", MSG_HEADERS), 
 		#undef Y
 		{ NULL, 0, MSG_UNKNOWN }
 	}, *cmd;
@@ -211,13 +225,6 @@ unmarshal_version_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	in += unmarshal_bytes(in, msg->user_agent_len, msg->user_agent);
 	in += unmarshal(in, (uint32_t *)&msg->start_height);
 	in += unmarshal(in, &msg->relay);
-
-	uint8_t checksum[4];
-	calc_payload_checksum(payload, hdr->payload_size, checksum);
-	if (memcmp(checksum, hdr->checksum, sizeof(checksum)) != 0) {
-		syslog(LOG_ERR, "%s: the message checksum is wrong", __func__);
-		return -1;
-	}
 
 	return 0;
 }
@@ -357,7 +364,7 @@ int
 read_message(int fd, enum msg_types *type, union message **msg)
 {
 	struct msg_hdr hdr;
-	ssize_t n;
+	ssize_t n, n_read = 0;
 	uint8_t checksum[4];
 
 	n = read_msg_hdr(fd, &hdr);
@@ -371,21 +378,27 @@ read_message(int fd, enum msg_types *type, union message **msg)
 		return -1;
 	}
 
-	// FIXME Check the checksum here rather than in unmarshal* functions.
-
 	*type = get_msg_type(&hdr);
 	uint8_t *payload = xmalloc(hdr.payload_size);
 
-	n = read(fd, payload, hdr.payload_size);
-	if (n < 0) {
-		free(payload);
-		syslog(LOG_ERR, "%s: failed to read message payload from peer, errno %d", __func__, errno);
-		return -1;
-	} else if (n != hdr.payload_size) {
-		free(payload);
-		syslog(LOG_ERR, "%s: failed to read message payload from peer, short read", __func__);
-		return -1;
+	for (n_read = 0; n_read != hdr.payload_size; n_read += n) {
+		n = read(fd, payload + n_read, hdr.payload_size - n_read);
+		if (n < 0) {
+			free(payload);
+			syslog(LOG_ERR, "%s: failed to read message payload from peer, errno %d", __func__, errno);
+			return -1;
+		} else if (n == 0) {
+			free(payload);
+			syslog(LOG_ERR, "%s: failed to read message payload from peer, short read", __func__);
+			return -1;
+		}
 	}
+
+	/*
+	printf("%s: received %*s message payload of size %u (%x):\n", __func__, (int)strlen(hdr.command), hdr.command, hdr.payload_size, hdr.payload_size);
+	hexdump(payload, hdr.payload_size);
+	fflush(stdout);
+	*/
 
 	calc_payload_checksum(payload, hdr.payload_size, checksum);
 	if (memcmp(hdr.checksum, checksum, sizeof(checksum)) != 0) {
@@ -402,7 +415,6 @@ read_message(int fd, enum msg_types *type, union message **msg)
 		syslog(LOG_DEBUG, "%s: got version message", __func__);
 		break;
 	case MSG_VERACK:
-		// FIXME Check the checksum in the header.
 		syslog(LOG_DEBUG, "%s: got verack message", __func__);
 		free(payload);
 		break;
@@ -419,11 +431,11 @@ read_message(int fd, enum msg_types *type, union message **msg)
 		break;
 	case MSG_INV:
 		syslog(LOG_DEBUG, "%s: got inv message", __func__);
-		unmarshal_inv_msg(&hdr, payload, (struct inv_msg **)msg);
+		error = unmarshal_inv_msg(&hdr, payload, (struct inv_msg **)msg);
 		break;
 	case MSG_HEADERS:
 		syslog(LOG_DEBUG, "%s: got headers message", __func__);
-		unmarshal_headers_msg(&hdr, payload, (struct headers_msg **)msg);
+		error = unmarshal_headers_msg(&hdr, payload, (struct headers_msg **)msg);
 		break;
 	default:
 		syslog(LOG_DEBUG, "%s: got an unknown messsage, command field is '%*s'", __func__, (int)strnlen(hdr.command, sizeof(hdr.command)), hdr.command);

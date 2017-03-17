@@ -32,6 +32,8 @@
 
 typedef uint64_t varint_t;
 
+extern uint8_t genesis_block_hash[32];
+
 enum msg_types {
 	MSG_UNKNOWN,
 	MSG_VERSION,
@@ -106,7 +108,7 @@ struct block_hdr {
 	uint32_t nonce;
 	uint8_t tx_count; // Always zero, actual type is varint.
 };
-#define BLOCK_HDR_LEN (4 + 2*8 + 2*4 + 1)
+#define BLOCK_HDR_LEN (4 + 2*32 + 3*4 + 1)
 struct headers_msg {
 	varint_t count;
 	struct block_hdr headers[];
@@ -159,6 +161,7 @@ union message {
 	struct addr_msg addr;
 	struct getheaders_msg getheaders;
 	struct inv_msg inv;
+	struct headers_msg headers;
 };
 
 /*
@@ -351,18 +354,23 @@ unmarshal_uint8(const uint8_t *in, uint8_t *out)
 inline size_t
 unmarshal_varint(const uint8_t *in, uint64_t *out)
 {
+	uint16_t u16;
+	uint32_t u32;
 	uint8_t mark = *in++;
 	if (mark < 0xFD) {
 		*out = mark;
 		return 1;
 	} else if (mark == 0xFD) {
-		memcpy(out, in, 2);
+		// FIXME Convert to little endian on big endian machines.
+		unmarshal_uint16(in, &u16);
+		*out = u16;
 		return 3;
 	} else if (mark == 0xFE) {
-		memcpy(out, in, 4);
+		unmarshal_uint32(in, &u32);
+		*out = u32;
 		return 5;
 	} else {
-		memcpy(out, in, 8);
+		unmarshal_uint64(in, out);
 		return 9;
 	}
 }

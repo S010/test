@@ -29,8 +29,8 @@ discover_peers(void)
 	}
 
 	printf("Discovering peers:\n");
-	struct peer *head = NULL;
-	struct peer *peer = NULL;
+	struct peer *head, *tail, *peer;
+	head = tail = peer = NULL;
 	for (struct addrinfo *ai = addrs; ai != NULL; ai = ai->ai_next) {
 		switch (ai->ai_family) {
 		case AF_INET:
@@ -46,8 +46,12 @@ discover_peers(void)
 				memcpy(s6_addr_ptr + 12, s_addr_ptr, 4);
 				hexdump(s6_addr_ptr, 16);
 			}
-			peer->next = head;
-			head = peer;
+			if (head == NULL) {
+				head = tail = peer;
+			} else {
+				tail->next = peer;
+				tail = peer;
+			}
 			break;
 		default:
 			continue;

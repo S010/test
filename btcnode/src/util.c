@@ -19,6 +19,6 @@ hexdump(const void *ptr, size_t size)
 			printf("0x%08lx| ", i);
 		printf("%02x", buf[i]);
 	}
-	if ((i % 16) == 0)
+	if ((i % 16) != 0)
 		putchar('\n');
 }
