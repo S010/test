@@ -23,7 +23,7 @@
 #include "xmalloc.h"
 
 static int
-calc_msg_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
+calc_payload_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
 {
 	if (in_size == 0) {
 		out[0] = 0x5d;
@@ -74,6 +74,30 @@ calc_version_msg_len(const struct version_msg *msg)
 	return len;
 }
 
+static size_t
+calc_getheaders_msg_len(const struct getheaders_msg *msg)
+{
+	size_t size = 0;
+
+	size += sizeof(msg->version);
+	size += calc_varint_len(msg->hash_count);
+	size += sizeof(msg->hash) * msg->hash_count;
+	size += sizeof(msg->stop_hash);
+
+	return size;
+}
+
+static size_t
+calc_inv_msg_len(const struct inv_msg *msg)
+{
+	size_t size = 0;
+
+	size += calc_varint_len(msg->count);
+	size += msg->count * INV_VEC_LEN;
+
+	return size;
+}
+
 static int
 fill_msg_hdr(
     const uint8_t *start,
@@ -86,7 +110,7 @@ fill_msg_hdr(
 	memset(hdr->command, 0, sizeof(hdr->command));
 	strcpy(hdr->command, command);
 	hdr->payload_size = payload_size;
-	calc_msg_checksum(payload, payload_size, hdr->checksum);
+	calc_payload_checksum(payload, payload_size, hdr->checksum);
 
 	return 0;
 }
@@ -127,6 +151,7 @@ get_msg_type(const struct msg_hdr *hdr)
 		Y("ping", MSG_PING),
 		Y("pong", MSG_PONG),
 		Y("addr", MSG_ADDR),
+		Y("inv", MSG_INV),
 		#undef Y
 		{ NULL, 0, MSG_UNKNOWN }
 	}, *cmd;
@@ -188,7 +213,7 @@ unmarshal_version_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	in += unmarshal(in, &msg->relay);
 
 	uint8_t checksum[4];
-	calc_msg_checksum(payload, hdr->payload_size, checksum);
+	calc_payload_checksum(payload, hdr->payload_size, checksum);
 	if (memcmp(checksum, hdr->checksum, sizeof(checksum)) != 0) {
 		syslog(LOG_ERR, "%s: the message checksum is wrong", __func__);
 		return -1;
@@ -318,7 +343,7 @@ read_version_msg(int fd, struct version_msg *msg)
 	in += unmarshal(in, (uint32_t *)&msg->start_height);
 	in += unmarshal(in, &msg->relay);
 
-	calc_msg_checksum(buf, hdr.payload_size, checksum);
+	calc_payload_checksum(buf, hdr.payload_size, checksum);
 
 	if (memcmp(checksum, hdr.checksum, 4) != 0) {
 		syslog(LOG_ERR, "%s: the payload chekcsum appears to be wrong", __func__);
@@ -333,6 +358,7 @@ read_message(int fd, enum msg_types *type, union message **msg)
 {
 	struct msg_hdr hdr;
 	ssize_t n;
+	uint8_t checksum[4];
 
 	n = read_msg_hdr(fd, &hdr);
 	if (n != 0) {
@@ -345,47 +371,66 @@ read_message(int fd, enum msg_types *type, union message **msg)
 		return -1;
 	}
 
-	*type = get_msg_type(&hdr);
-	uint8_t *buf = xmalloc(hdr.payload_size);
+	// FIXME Check the checksum here rather than in unmarshal* functions.
 
-	n = read(fd, buf, hdr.payload_size);
+	*type = get_msg_type(&hdr);
+	uint8_t *payload = xmalloc(hdr.payload_size);
+
+	n = read(fd, payload, hdr.payload_size);
 	if (n < 0) {
-		free(buf);
+		free(payload);
 		syslog(LOG_ERR, "%s: failed to read message payload from peer, errno %d", __func__, errno);
+		return -1;
 	} else if (n != hdr.payload_size) {
-		free(buf);
+		free(payload);
 		syslog(LOG_ERR, "%s: failed to read message payload from peer, short read", __func__);
+		return -1;
+	}
+
+	calc_payload_checksum(payload, hdr.payload_size, checksum);
+	if (memcmp(hdr.checksum, checksum, sizeof(checksum)) != 0) {
+		free(payload);
+		syslog(LOG_ERR, "%s: the payload checksum is wrong", __func__);
+		return -1;
 	}
 
 	int error = 0;
 	switch (*type) {
 	case MSG_VERSION:
 		*msg = xmalloc(sizeof((*msg)->version));
-		error = unmarshal_version_msg(&hdr, buf, &(*msg)->version);
+		error = unmarshal_version_msg(&hdr, payload, &(*msg)->version);
 		syslog(LOG_DEBUG, "%s: got version message", __func__);
 		break;
 	case MSG_VERACK:
 		// FIXME Check the checksum in the header.
 		syslog(LOG_DEBUG, "%s: got verack message", __func__);
-		free(buf);
+		free(payload);
 		break;
 	case MSG_PING:
 	case MSG_PONG:
 		syslog(LOG_DEBUG, "%s: got ping/pong message", __func__);
 		*msg = xmalloc(sizeof((*msg)->ping));
-		error = unmarshal_ping_msg(&hdr, buf, &(*msg)->ping);
+		error = unmarshal_ping_msg(&hdr, payload, &(*msg)->ping);
 		break;
 	case MSG_ADDR:
 		// FIXME
 		*type = MSG_UNKNOWN;
 		syslog(LOG_DEBUG, "%s: ignored addr message", __func__);
 		break;
+	case MSG_INV:
+		syslog(LOG_DEBUG, "%s: got inv message", __func__);
+		unmarshal_inv_msg(&hdr, payload, (struct inv_msg **)msg);
+		break;
+	case MSG_HEADERS:
+		syslog(LOG_DEBUG, "%s: got headers message", __func__);
+		unmarshal_headers_msg(&hdr, payload, (struct headers_msg **)msg);
+		break;
 	default:
 		syslog(LOG_DEBUG, "%s: got an unknown messsage, command field is '%*s'", __func__, (int)strnlen(hdr.command, sizeof(hdr.command)), hdr.command);
 		break;
 	}
 
-	free(buf);
+	free(payload);
 
 	if (error)
 		syslog(LOG_ERR, "%s: failed to unmarshal message type %d", __func__, *type);
@@ -432,7 +477,7 @@ read_verack_msg(int fd)
 }
 
 int
-write_pong_msg(int fd, struct ping_msg *msg)
+write_pong_msg(const struct ping_msg *msg, int fd)
 {
 	uint8_t buf[MSG_HDR_LEN + PING_MSG_LEN];
 	struct msg_hdr hdr;
@@ -446,5 +491,129 @@ write_pong_msg(int fd, struct ping_msg *msg)
 		return n;
 	else if ((size_t)n != sizeof(buf))
 		return -1;
+	return 0;
+}
+
+size_t
+marshal_getheaders_msg(const struct getheaders_msg *msg, uint8_t *out)
+{
+	size_t off = 0;
+
+	off += marshal(msg->version, out + off);
+	off += marshal_varint(msg->hash_count, out + off);
+	off += marshal_bytes(msg->hash, sizeof(msg->hash) * msg->hash_count, out + off);
+	off += marshal_bytes(msg->stop_hash, sizeof(msg->stop_hash), out + off);
+
+	return off;
+}
+
+int
+write_getheaders_msg(int fd, const struct getheaders_msg *msg)
+{
+	struct msg_hdr hdr;
+	// FIXME Allocate using dynamic memory?
+	size_t msg_len = calc_getheaders_msg_len(msg);
+	uint8_t buf[MSG_HDR_LEN + msg_len];
+
+	marshal(msg, buf + MSG_HDR_LEN);
+	fill_msg_hdr(MAINNET_START, "getheaders", buf + MSG_HDR_LEN, msg_len, &hdr);
+	marshal(&hdr, buf);
+
+	int n = write(fd, buf, sizeof(buf));
+	if (n < 0)
+		return n;
+	else if ((size_t)n != sizeof(buf))
+		return -1;
+	return 0;
+}
+
+int
+unmarshal_inv_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct inv_msg **out)
+{
+	if (hdr->payload_size < INV_MSG_MIN_LEN) {
+		syslog(LOG_ERR, "%s: payload size is too small for inv message at %u bytes", __func__, hdr->payload_size);
+		return -1;
+	}
+
+	struct inv_msg *msg = xmalloc(sizeof(*msg));
+
+	size_t off = 0;
+	off += unmarshal_varint(payload + off, &msg->count);
+
+	size_t expected_size = calc_varint_len(msg->count) + msg->count * INV_VEC_LEN;
+	if (hdr->payload_size != expected_size) {
+		syslog(LOG_ERR, "%s: payload size (%u) doesn't match the expected size (%lu)", __func__, hdr->payload_size, expected_size);
+		free(msg);
+		return -1;
+	}
+
+	msg = xrealloc(msg, sizeof(*msg) + sizeof(struct inv_vec) * msg->count);
+	for (size_t i = 0; i < msg->count; ++i)
+		off += unmarshal(payload + off, &msg->inv_vec[i]);
+
+	*out = msg;
+
+	return 0;
+}
+
+int
+write_getdata_msg(const struct inv_msg *msg, int fd)
+{
+	struct msg_hdr hdr;
+	size_t msg_len = calc_inv_msg_len(msg);
+	uint8_t buf[MSG_HDR_LEN + msg_len];
+
+	marshal(msg, buf + MSG_HDR_LEN);
+	fill_msg_hdr(MAINNET_START, "getdata", buf + MSG_HDR_LEN, msg_len, &hdr);
+	marshal(&hdr, buf);
+
+	int n = write(fd, buf, sizeof(buf));
+	if (n < 0)
+		return n;
+	else if ((size_t)n != sizeof(buf))
+		return -1;
+	return 0;
+}
+
+size_t
+unmarshal_block_hdr(const uint8_t *in, struct block_hdr *hdr)
+{
+	size_t off = 0;
+
+	off += unmarshal(in + off, &hdr->version);
+	off += unmarshal_bytes(in + off, sizeof(hdr->prev_hash), hdr->prev_hash);
+	off += unmarshal_bytes(in + off, sizeof(hdr->merkle_root), hdr->merkle_root);
+	off += unmarshal(in + off, &hdr->timestamp);
+	off += unmarshal(in + off, &hdr->bits);
+	off += unmarshal(in + off, &hdr->nonce);
+	off += unmarshal(in + off, &hdr->tx_count);
+
+	return off;
+}
+
+int
+unmarshal_headers_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct headers_msg **out)
+{
+	if (hdr->payload_size < HEADERS_MSG_MIN_LEN) {
+		syslog(LOG_ERR, "%s: payload size is too small at %u bytes", __func__, hdr->payload_size);
+		return -1;
+	}
+
+	struct headers_msg *msg = xmalloc(sizeof(*msg));
+	size_t off = unmarshal_varint(payload, &msg->count);
+
+	size_t expected_size = calc_varint_len(msg->count) + msg->count * BLOCK_HDR_LEN;
+	if (hdr->payload_size != expected_size) {
+		free(msg);
+		syslog(LOG_ERR, "%s: payload size (%u) is smaller than expected (%lu)", __func__, hdr->payload_size, expected_size);
+		return -1;
+	}
+
+	msg = xrealloc(msg, sizeof(*msg) + msg->count * sizeof(struct block_hdr));
+	for (size_t i = 0; i < msg->count; ++i)
+		off += unmarshal_block_hdr(payload + off, &msg->headers[i]);
+
+	*out = msg;
+
 	return 0;
 }

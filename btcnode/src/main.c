@@ -59,7 +59,14 @@ main(int argc, char **argv)
 		while (read_message(peer->proto.conn, &type, &msg) == 0) {
 			switch (type) {
 			case MSG_PING:
-				write_pong_msg(peer->proto.conn, &msg->ping);
+				write_pong_msg(&msg->ping, peer->proto.conn);
+				break;
+			case MSG_INV:
+				syslog(LOG_DEBUG, "%s: got inventory from peer, %lu elems:", __func__, msg->inv.count);
+				for (size_t i = 0; i < msg->inv.count; ++i) {
+					const uint8_t *p = msg->inv.inv_vec[i].hash;
+					syslog(LOG_DEBUG, "%s: inv_vec: type %d, %02x%02x%02x%02x...", __func__, msg->inv.inv_vec[i].type,  p[0], p[1], p[2], p[3]);
+				}
 				break;
 			default:
 				break;
