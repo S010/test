@@ -42,7 +42,8 @@ enum msg_types {
 	MSG_PONG,
 	MSG_ADDR,
 	MSG_INV,
-	MSG_HEADERS
+	MSG_HEADERS,
+	MSG_BLOCK
 };
 struct msg_hdr {
 	uint8_t start[4];
@@ -120,6 +121,13 @@ struct inv_vec {
 	uint32_t type;
 	uint8_t hash[32];
 };
+enum {
+	INV_TYPE_ERROR,
+	INV_TYPE_TX,
+	INV_TYPE_BLOCK,
+	INV_TYPE_FILTERED_BLOCK,
+	INV_TYPE_CMPCT_BLOCK
+};
 #define INV_VEC_LEN 36
 struct inv_msg { // Also represents 'getdata' message.
 	varint_t count;
@@ -145,7 +153,7 @@ struct outpoint {
 // -----------------------------
 struct tx_input {
 	struct outpoint prev_output;
-	uint32_t seqno;
+	uint32_t seq;
 	varint_t script_len;
 	uint8_t script[];
 };
@@ -200,6 +208,7 @@ union message {
 	struct getheaders_msg getheaders;
 	struct inv_msg inv;
 	struct headers_msg headers;
+	struct block_msg block;
 };
 
 /*
@@ -429,6 +438,7 @@ unmarshal_inv_vec(const uint8_t *in, struct inv_vec *out)
 size_t unmarshal_msg_hdr(const uint8_t *in, struct msg_hdr *hdr);
 int unmarshal_inv_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct inv_msg **out);
 int unmarshal_headers_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct headers_msg **out);
+int unmarshal_block_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct block_msg **out);
 
 #define unmarshal(x, y) \
 	_Generic((y), \
@@ -453,7 +463,10 @@ int write_pong_msg(const struct ping_msg *msg, int fd);
 int read_version_msg(int fd, struct version_msg *msg);
 int read_verack_msg(int fd);
 int read_message(int fd, enum msg_types *type, union message **msg);
+int read_block_msg(int fd, struct block_msg **out);
 
 void calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/);
+
+void free_block_msg(struct block_msg *block);
 
 #endif

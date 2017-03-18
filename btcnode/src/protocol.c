@@ -169,6 +169,7 @@ get_msg_type(const struct msg_hdr *hdr)
 		Y("addr", MSG_ADDR),
 		Y("inv", MSG_INV),
 		Y("headers", MSG_HEADERS), 
+		Y("block", MSG_BLOCK),
 		#undef Y
 		{ NULL, 0, MSG_UNKNOWN }
 	}, *cmd;
@@ -330,6 +331,7 @@ read_version_msg(int fd, struct version_msg *msg)
 		syslog(LOG_ERR, "%s: short read of %u bytes", __func__, (unsigned)n);
 		return -1;
 	}
+	// FIXME Use the proper unmarshal function.
 	in += unmarshal(in, (uint32_t *)&msg->version);
 	in += unmarshal(in, &msg->services);
 	in += unmarshal(in, &msg->timestamp);
@@ -353,6 +355,7 @@ read_version_msg(int fd, struct version_msg *msg)
 	in += unmarshal(in, (uint32_t *)&msg->start_height);
 	in += unmarshal(in, &msg->relay);
 
+	// FIXME Checksum is already calculated in read_message().
 	calc_payload_checksum(buf, hdr.payload_size, checksum);
 
 	if (memcmp(checksum, hdr.checksum, 4) != 0) {
@@ -439,6 +442,11 @@ read_message(int fd, enum msg_types *type, union message **msg)
 	case MSG_HEADERS:
 		syslog(LOG_DEBUG, "%s: got headers message", __func__);
 		error = unmarshal_headers_msg(&hdr, payload, (struct headers_msg **)msg);
+		break;
+	case MSG_BLOCK:
+		syslog(LOG_DEBUG, "%s: got block message", __func__);
+		// FIXME Pass proper pointers or handle it inside functions.
+		error = unmarshal_block_msg(&hdr, payload, (struct block_msg **)msg);
 		break;
 	default:
 		syslog(LOG_DEBUG, "%s: got an unknown messsage, command field is '%*s'", __func__, (int)strnlen(hdr.command, sizeof(hdr.command)), hdr.command);
@@ -650,15 +658,63 @@ calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/)
 {
 	uint8_t buf[BLOCK_HDR_MAX_LEN];
 	marshal(hdr, buf);
-	calc_double_hash(buf, sizeof(buf) - 1, out);
+	calc_double_hash(buf, BLOCK_HDR_MIN_LEN - 1, out);
 }
 
-int
-unmarshal_tx_msg(const uint8_t *in, size_t *off, struct tx_msg *tx)
+static size_t
+unmarshal_tx_input(const uint8_t *in, struct tx_input **out)
 {
-	(void)in;
-	(void)off;
-	(void)tx;
+	struct tx_input *tx_in = xmalloc(sizeof(*tx_in));
+
+	// FIXME Check boundaries.
+
+	size_t off = 0;
+	off += unmarshal_bytes(in + off, sizeof(tx_in->prev_output.hash), tx_in->prev_output.hash);
+	off += unmarshal(in + off, &tx_in->prev_output.index);
+	off += unmarshal_varint(in + off, &tx_in->script_len);
+	tx_in = xrealloc(tx_in, sizeof(*tx_in) + tx_in->script_len);
+	off += unmarshal_bytes(in + off, tx_in->script_len, tx_in->script);
+	off += unmarshal(in + off, &tx_in->seq);
+
+	*out = tx_in;
+
+	return off;
+}
+
+static size_t
+unmarshal_tx_output(const uint8_t *in, struct tx_output **out)
+{
+	struct tx_output *tx_out = xmalloc(sizeof(*tx_out));
+
+	// FIXME Check boundaries.
+
+	size_t off = 0;
+	off += unmarshal(in + off, &tx_out->value);
+	off += unmarshal_varint(in + off, &tx_out->pk_script_len);
+	tx_out = xrealloc(tx_out, sizeof(*tx_out) + tx_out->pk_script_len);
+	off += unmarshal_bytes(in + off, tx_out->pk_script_len, tx_out->pk_script);
+
+	*out = tx_out;
+
+	return off;
+}
+
+size_t
+unmarshal_tx_msg(const uint8_t *in, struct tx_msg *tx)
+{
+	size_t off = 0;
+	off += unmarshal(in + off, &tx->version);
+	off += unmarshal_varint(in + off, &tx->in_count);
+	tx->in = xmalloc(tx->in_count * sizeof(struct tx_input *));
+	for (size_t i = 0; i < tx->in_count; ++i) {
+		off += unmarshal_tx_input(in + off, &tx->in[i]);
+	}
+	off += unmarshal_varint(in + off, &tx->out_count);
+	tx->out = xmalloc(tx->out_count * sizeof(struct tx_output *));
+	for (size_t i = 0; i < tx->out_count; ++i) {
+		off += unmarshal_tx_output(in + off, &tx->out[i]);
+	}
+	off += unmarshal(in + off, &tx->locktime);
 	return 0;
 }
 
@@ -671,7 +727,8 @@ unmarshal_block_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct bl
 	}
 
 	struct block_msg *msg = xmalloc(sizeof(*msg));
-	unmarshal_block_hdr(payload, &msg->hdr);
+	size_t off = 0;
+	off += unmarshal_block_hdr(payload, &msg->hdr);
 	if (msg->hdr.tx_count > BLOCK_MSG_MAX_TXNS) {
 		free(msg);
 		syslog(LOG_ERR, "%s: block contains %lu txns, whereas a maximum of %d is allowed", __func__, msg->hdr.tx_count, BLOCK_MSG_MAX_TXNS);
@@ -679,14 +736,63 @@ unmarshal_block_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct bl
 	}
 
 	msg = xrealloc(msg, sizeof(*msg) + msg->hdr.tx_count * sizeof(struct tx_msg));
-	size_t off = 0;
 	for (uint64_t i = 0; i < msg->hdr.tx_count; ++i) {
-		int error = unmarshal_tx_msg(payload, &off, &msg->tx[i]);
-		if (error)
-			return error;
+		off += unmarshal_tx_msg(payload + off, &msg->tx[i]);
 	}
 
 	*out = msg;
 
 	return 0;
+}
+
+void
+free_block_msg(struct block_msg *block)
+{
+	for (size_t i = 0; i < block->hdr.tx_count; ++i) {
+		for (size_t j = 0; j < block->tx[i].in_count; ++j)
+			free(block->tx[i].in[j]);
+		free(block->tx[i].in);
+		for (size_t j = 0; j < block->tx[i].out_count; ++j)
+			free(block->tx[i].out[j]);
+		free(block->tx[i].out);
+	}
+	free(block);
+}
+
+int
+read_block_msg(int fd, struct block_msg **out)
+{
+	ssize_t n;
+	struct msg_hdr hdr;
+
+	n = read_msg_hdr(fd, &hdr);
+	if (n != 0) {
+		syslog(LOG_ERR, "%s: read_msg_hdr failed", __func__);
+		return n;
+	}
+
+	if (hdr.payload_size < BLOCK_MSG_MIN_LEN) {
+		syslog(LOG_ERR, "%s: payload_size is too small at %u bytes", __func__, (unsigned)hdr.payload_size);
+		return 1;
+	}
+
+	uint8_t *buf = xmalloc(hdr.payload_size);
+
+	n = read(fd, buf, hdr.payload_size);
+	if (n == -1) {
+		free(buf);
+		syslog(LOG_ERR, "%s: read failed, errno %d", __func__, errno);
+		return -1;
+	}
+	if (n != hdr.payload_size) {
+		free(buf);
+		syslog(LOG_ERR, "%s: short read of %u bytes", __func__, (unsigned)n);
+		return -1;
+	}
+
+	int error = unmarshal_block_msg(&hdr, buf, out);
+
+	free(buf);
+
+	return error;
 }

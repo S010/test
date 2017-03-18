@@ -35,6 +35,7 @@
 
 #include "protocol.h"
 #include "peer.h"
+#include "xmalloc.h"
 
 static int
 request_headers(int fd)
@@ -67,9 +68,22 @@ handle_inv_message(struct peer *peer, union message *msg)
 	syslog(LOG_DEBUG, "%s: got inventory from peer, %lu elems:", __func__, msg->inv.count);
 	for (size_t i = 0; i < msg->inv.count; ++i) {
 		const uint8_t *p = msg->inv.inv_vec[i].hash;
-		syslog(LOG_DEBUG, "%s: inv_vec: type %d, %02x%02x%02x%02x...", __func__, msg->inv.inv_vec[i].type,  p[0], p[1], p[2], p[3]);
+		syslog(LOG_DEBUG, "%s:   type %d, %02x%02x%02x%02x...", __func__, msg->inv.inv_vec[i].type,  p[0], p[1], p[2], p[3]);
 	}
 	return 0;
+}
+
+static int
+request_block(struct peer *peer, uint8_t hash[32])
+{
+	struct inv_msg *msg = xmalloc(sizeof(*msg) + sizeof(struct inv_vec));
+	msg->count = 1;
+	msg->inv_vec[0].type = INV_TYPE_BLOCK;
+	memcpy(msg->inv_vec[0].hash, hash, 32); // FIXME Remove magic numbers.
+
+	int error = write_getdata_msg(msg, peer->proto.conn);
+	free(msg);
+	return error;
 }
 
 static int
@@ -96,6 +110,14 @@ handle_headers_message(struct peer *peer, union message *msg)
 			}
 		}
 		calc_block_hdr_hash(h, hash);
+		const size_t fetch_block_interval = 100;
+		if ((i % fetch_block_interval) == 0) {
+			syslog(LOG_DEBUG, "%s: requesting full block #%lu", __func__, i);
+			int error = request_block(peer, hash);
+			if (error) {
+				syslog(LOG_ERR, "%s: failed to request block identified by hash %02x%02x%02x%02x...", __func__, hash[0], hash[1], hash[2], hash[3]);
+			}
+		}
 	}
 	if (all_correct) {
 		syslog(LOG_DEBUG, "%s: hashes of all block headers are correct", __func__);
@@ -104,6 +126,32 @@ handle_headers_message(struct peer *peer, union message *msg)
 		syslog(LOG_ERR, "%s: hashes of some of block headers are incorrect", __func__);
 		return -1;
 	}
+}
+
+static int
+handle_block_message(struct peer *peer, union message *msg)
+{
+	struct block_msg *block = &msg->block;
+	uint8_t hash[32];
+
+	(void)peer;
+
+	calc_block_hdr_hash(&block->hdr, hash);
+
+	syslog(LOG_DEBUG, "%s: block %02x%02x%02x%02x..., %lu txns", __func__, hash[0], hash[1], hash[2], hash[3], block->hdr.tx_count);
+	for (size_t i = 0; i < block->hdr.tx_count; ++i) {
+		struct tx_msg *tx = &block->tx[i];
+		syslog(LOG_DEBUG, "%s:       tx #%lu: ver %u, %lu in, %lu out, locktime %u", __func__, i, tx->version, tx->in_count, tx->out_count, tx->locktime);
+		for (size_t j = 0; j < tx->in_count; ++j) {
+			uint8_t *out_hash = tx->in[j]->prev_output.hash;
+			syslog(LOG_DEBUG, "%s:       tx #%lu: input #%lu from %02x%02x%02x%02x...", __func__, i, j, out_hash[0], out_hash[1], out_hash[2], out_hash[3]);
+		}
+		for (size_t j = 0; j < tx->out_count; ++j) {
+			uint8_t *scr = tx->out[j]->pk_script;
+			syslog(LOG_DEBUG, "%s:       tx #%lu: output #%lu, value %lu, script len %lu, script %02x%02x%02x%02x...", __func__, i, j, tx->out[j]->value, tx->out[j]->pk_script_len, scr[0], scr[1], scr[2], scr[3]);
+		}
+	}
+	return 0;
 }
 
 static int
@@ -124,8 +172,16 @@ handle_message(struct peer *peer, enum msg_types msg_type, union message *msg)
 	case MSG_HEADERS:
 		error = handle_headers_message(peer, msg);
 		break;
+	case MSG_BLOCK:
+		error = handle_block_message(peer, msg);
+		break;
 	default:
 		break;
+	}
+	if (msg_type == MSG_BLOCK) {
+		free_block_msg(&msg->block);
+	} else {
+		free(msg);
 	}
 	return error;
 }
@@ -153,10 +209,8 @@ main(int argc, char **argv)
 		union message *msg = NULL;
 		while (read_message(peer->proto.conn, &type, &msg) == 0) {
 			handle_message(peer, type, msg);
-			free(msg);
 			msg = NULL;
 		}
-
 		break;
 	}
 

@@ -44,7 +44,7 @@ discover_peers(void)
 				void *s_addr_ptr = &((struct sockaddr_in *)ai->ai_addr)->sin_addr.s_addr;
 				memset(s6_addr_ptr + 10, 0xff, 2);
 				memcpy(s6_addr_ptr + 12, s_addr_ptr, 4);
-				hexdump(s6_addr_ptr, 16);
+				//hexdump(s6_addr_ptr, 16);
 			}
 			if (head == NULL) {
 				head = tail = peer;
