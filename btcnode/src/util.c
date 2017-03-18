@@ -8,6 +8,7 @@ hexdump(const void *ptr, size_t size)
 {
 	const uint8_t *buf = ptr;
 	size_t i;
+	fflush(stdout);
 	for (i = 0; i < size; ++i) {
 		if (i > 0 && (i % 16) == 0)
 			putchar('\n');
@@ -19,6 +20,7 @@ hexdump(const void *ptr, size_t size)
 			printf("0x%08lx| ", i);
 		printf("%02x", buf[i]);
 	}
-	if ((i % 16) != 0)
+	if (((i - 1) % 16) != 0)
 		putchar('\n');
+	fflush(stdout);
 }

@@ -91,15 +91,30 @@ main(int argc, char **argv)
 				break;
 			case MSG_HEADERS:
 				syslog(LOG_DEBUG, "%s: got %lu block headers from peer", __func__, msg->headers.count);
+				uint8_t hash[32];
+				bool all_correct = true;
 				for (size_t i = 0; i < msg->headers.count; ++i) {
 					const struct block_hdr *h = &msg->headers.headers[i];
-					syslog(LOG_DEBUG, "%s: block header [%lu]: "
+					syslog(LOG_DEBUG, "%s: block header #%lu: "
 					    "{ ver=%x, prev=%02x%02x%02x%02x..., merkle=%02x%02x%02x%02x..., time=%08x, bits=%u, nonce=%08x }",
 					    __func__, i,
 					    h->version,
 					    h->prev_hash[0], h->prev_hash[1], h->prev_hash[2], h->prev_hash[3],
 					    h->merkle_root[0], h->merkle_root[1], h->merkle_root[2], h->merkle_root[3],
 					    h->timestamp, h->bits, h->nonce);
+					if (i > 0) {
+						bool is_correct = memcmp(hash, h->prev_hash, sizeof(hash)) == 0;
+						all_correct = all_correct && is_correct;
+						if (!is_correct) {
+							syslog(LOG_ERR, "%s: hash of block header %lu is incorrect", __func__, i - 1);
+						}
+					}
+					calc_block_hdr_hash(h, hash);
+				}
+				if (all_correct) {
+					syslog(LOG_DEBUG, "%s: hashes of all block headers are correct", __func__);
+				} else {
+					syslog(LOG_ERR, "%s: hashes of some of block headers are incorrect", __func__);
 				}
 				break;
 			default:

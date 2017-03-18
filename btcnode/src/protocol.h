@@ -287,6 +287,7 @@ size_t marshal_msg_hdr(const struct msg_hdr *hdr, uint8_t *out);
 size_t marshal_in6_addr(const struct in6_addr *addr, uint8_t *out);
 size_t marshal_ping_msg(const struct ping_msg *msg, uint8_t *out);
 size_t marshal_getheaders_msg(const struct getheaders_msg *msg, uint8_t *out);
+size_t marshal_block_hdr(const struct block_hdr *hdr, uint8_t *out);
 
 #define marshal(x, y) \
 	_Generic((x), \
@@ -304,6 +305,8 @@ size_t marshal_getheaders_msg(const struct getheaders_msg *msg, uint8_t *out);
 		const struct inv_vec *: marshal_inv_vec, \
 		struct inv_msg *: marshal_inv_msg, \
 		const struct inv_msg *: marshal_inv_msg, \
+		struct block_hdr *: marshal_block_hdr, \
+		const struct block_hdr *: marshal_block_hdr, \
 		int32_t: marshal_uint32, \
 		uint32_t: marshal_uint32, \
 		int16_t: marshal_uint16, \
@@ -411,5 +414,7 @@ int write_pong_msg(const struct ping_msg *msg, int fd);
 int read_version_msg(int fd, struct version_msg *msg);
 int read_verack_msg(int fd);
 int read_message(int fd, enum msg_types *type, union message **msg);
+
+void calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/);
 
 #endif

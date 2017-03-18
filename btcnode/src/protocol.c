@@ -34,6 +34,14 @@ uint8_t genesis_block_hash[32] = {
 	0x00, 0x00, 0x00, 0x00,
 };
 
+void
+calc_double_hash(const void *in, size_t in_size, uint8_t *second/*[SHA256_DIGEST_LENGTH]*/)
+{
+	uint8_t first[SHA256_DIGEST_LENGTH];
+	SHA256(in, in_size, first);
+	SHA256(first, sizeof(first), second);
+}
+
 static int
 calc_payload_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
 {
@@ -45,14 +53,9 @@ calc_payload_checksum(const void *in, size_t in_size, uint8_t *out/*[4]*/)
 		return 0;
 	}
 
-	uint8_t hash[2][SHA256_DIGEST_LENGTH];
-	for (int i = 0; i < 2; ++i) {
-		SHA256(in, in_size, hash[i]);
-		in = hash[i];
-		in_size = SHA256_DIGEST_LENGTH;
-	}
-	memcpy(out, hash[1], 4);
-
+	uint8_t hash[SHA256_DIGEST_LENGTH];
+	calc_double_hash(in, in_size, hash);
+	memcpy(out, hash, 4);
 	return 0;
 }
 
@@ -588,10 +591,23 @@ write_getdata_msg(const struct inv_msg *msg, int fd)
 }
 
 size_t
+marshal_block_hdr(const struct block_hdr *hdr, uint8_t *out)
+{
+	size_t off = 0;
+	off += marshal(hdr->version, out + off);
+	off += marshal_bytes(hdr->prev_hash, sizeof(hdr->prev_hash), out + off);
+	off += marshal_bytes(hdr->merkle_root, sizeof(hdr->prev_hash), out + off);
+	off += marshal(hdr->timestamp, out + off);
+	off += marshal(hdr->bits, out + off);
+	off += marshal(hdr->nonce, out + off);
+	off += marshal(hdr->tx_count, out + off);
+	return off;
+}
+
+size_t
 unmarshal_block_hdr(const uint8_t *in, struct block_hdr *hdr)
 {
 	size_t off = 0;
-
 	off += unmarshal(in + off, &hdr->version);
 	off += unmarshal_bytes(in + off, sizeof(hdr->prev_hash), hdr->prev_hash);
 	off += unmarshal_bytes(in + off, sizeof(hdr->merkle_root), hdr->merkle_root);
@@ -599,7 +615,6 @@ unmarshal_block_hdr(const uint8_t *in, struct block_hdr *hdr)
 	off += unmarshal(in + off, &hdr->bits);
 	off += unmarshal(in + off, &hdr->nonce);
 	off += unmarshal(in + off, &hdr->tx_count);
-
 	return off;
 }
 
@@ -628,4 +643,12 @@ unmarshal_headers_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	*out = msg;
 
 	return 0;
+}
+
+void
+calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/)
+{
+	uint8_t buf[BLOCK_HDR_LEN];
+	marshal(hdr, buf);
+	calc_double_hash(buf, sizeof(buf) - 1, out);
 }
