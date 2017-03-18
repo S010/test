@@ -653,3 +653,40 @@ calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/)
 	calc_double_hash(buf, sizeof(buf) - 1, out);
 }
 
+int
+unmarshal_tx_msg(const uint8_t *in, size_t *off, struct tx_msg *tx)
+{
+	(void)in;
+	(void)off;
+	(void)tx;
+	return 0;
+}
+
+int
+unmarshal_block_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct block_msg **out)
+{
+	if (hdr->payload_size < HEADERS_MSG_MIN_LEN) {
+		syslog(LOG_ERR, "%s: payload size is too small at %u bytes", __func__, hdr->payload_size);
+		return -1;
+	}
+
+	struct block_msg *msg = xmalloc(sizeof(*msg));
+	unmarshal_block_hdr(payload, &msg->hdr);
+	if (msg->hdr.tx_count > BLOCK_MSG_MAX_TXNS) {
+		free(msg);
+		syslog(LOG_ERR, "%s: block contains %lu txns, whereas a maximum of %d is allowed", __func__, msg->hdr.tx_count, BLOCK_MSG_MAX_TXNS);
+		return -1;
+	}
+
+	msg = xrealloc(msg, sizeof(*msg) + msg->hdr.tx_count * sizeof(struct tx_msg));
+	size_t off = 0;
+	for (uint64_t i = 0; i < msg->hdr.tx_count; ++i) {
+		int error = unmarshal_tx_msg(payload, &off, &msg->tx[i]);
+		if (error)
+			return error;
+	}
+
+	*out = msg;
+
+	return 0;
+}

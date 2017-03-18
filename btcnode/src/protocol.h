@@ -133,17 +133,48 @@ struct outpoint {
 	uint8_t hash[32];
 	uint32_t index;
 };
+// =============================
+// tx_input
+// =============================
+// siz name            type
+// -----------------------------
+// 36  previous_output  outpoint
+// 1+  script length    var_int
+// ?   signature script uchar[]
+// 4   sequence         uint32_t
+// -----------------------------
 struct tx_input {
 	struct outpoint prev_output;
 	uint32_t seqno;
 	varint_t script_len;
 	uint8_t script[];
 };
+// =============================
+// tx_output
+// =============================
+// siz name             type
+// -----------------------------
+// 8   value            uint64_t
+// 1+  pk_script length var_int
+// ?   pk_script        uchar[]
+// -----------------------------
 struct tx_output {
 	uint64_t value;
 	varint_t pk_script_len;
 	uint8_t pk_script[];
 };
+// ==================================
+// tx_msg
+// ==================================
+// siz name         type
+// ----------------------------------
+// 4   version      int32_t (signed!)
+// 1+  tx_in count  var_int
+// 41+ tx_in        tx_in[]
+// 1+  tx_out count var_int
+// 9+  tx_out       tx_out[]
+// 4   lock_time    uint32_t
+// ----------------------------------
 struct tx_msg {
 	uint32_t version;
 	varint_t in_count;
@@ -154,9 +185,10 @@ struct tx_msg {
 };
 struct block_msg {
 	struct block_hdr hdr;
-	struct tx_msg txns[];
+	struct tx_msg tx[];
 };
 #define BLOCK_MSG_MIN_LEN BLOCK_HDR_MIN_LEN
+#define BLOCK_MSG_MAX_TXNS 2000
 
 /*
  * Can hold any Bitcoin protocol message.
@@ -360,6 +392,7 @@ unmarshal_uint8(const uint8_t *in, uint8_t *out)
 	return 1;
 }
 
+// FIXME Check boundaries.
 inline size_t
 unmarshal_varint(const uint8_t *in, uint64_t *out)
 {
