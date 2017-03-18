@@ -614,7 +614,7 @@ unmarshal_block_hdr(const uint8_t *in, struct block_hdr *hdr)
 	off += unmarshal(in + off, &hdr->timestamp);
 	off += unmarshal(in + off, &hdr->bits);
 	off += unmarshal(in + off, &hdr->nonce);
-	off += unmarshal(in + off, &hdr->tx_count);
+	off += unmarshal_varint(in + off, &hdr->tx_count);
 	return off;
 }
 
@@ -629,7 +629,7 @@ unmarshal_headers_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 	struct headers_msg *msg = xmalloc(sizeof(*msg));
 	size_t off = unmarshal_varint(payload, &msg->count);
 
-	size_t expected_size = calc_varint_len(msg->count) + msg->count * BLOCK_HDR_LEN;
+	size_t expected_size = calc_varint_len(msg->count) + msg->count * BLOCK_HDR_MIN_LEN;
 	if (hdr->payload_size != expected_size) {
 		free(msg);
 		syslog(LOG_ERR, "%s: payload size (%u) is smaller than expected (%lu)", __func__, hdr->payload_size, expected_size);
@@ -648,7 +648,8 @@ unmarshal_headers_msg(const struct msg_hdr *hdr, const uint8_t *payload, struct 
 void
 calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/)
 {
-	uint8_t buf[BLOCK_HDR_LEN];
+	uint8_t buf[BLOCK_HDR_MAX_LEN];
 	marshal(hdr, buf);
 	calc_double_hash(buf, sizeof(buf) - 1, out);
 }
+

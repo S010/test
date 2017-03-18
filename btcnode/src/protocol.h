@@ -106,9 +106,10 @@ struct block_hdr {
 	uint32_t timestamp;
 	uint32_t bits;
 	uint32_t nonce;
-	uint8_t tx_count; // Always zero, actual type is varint.
+	varint_t tx_count; // Always zero in headers message.
 };
-#define BLOCK_HDR_LEN (4 + 2*32 + 3*4 + 1)
+#define BLOCK_HDR_MIN_LEN (4 + 2*32 + 3*4 + 1)
+#define BLOCK_HDR_MAX_LEN (4 + 2*32 + 3*4 + 9)
 struct headers_msg {
 	varint_t count;
 	struct block_hdr headers[];
@@ -132,13 +133,13 @@ struct outpoint {
 	uint8_t hash[32];
 	uint32_t index;
 };
-struct tx_in {
+struct tx_input {
 	struct outpoint prev_output;
-	varint_t script_len;
-	uint8_t *script;
 	uint32_t seqno;
+	varint_t script_len;
+	uint8_t script[];
 };
-struct tx_out {
+struct tx_output {
 	uint64_t value;
 	varint_t pk_script_len;
 	uint8_t pk_script[];
@@ -146,11 +147,16 @@ struct tx_out {
 struct tx_msg {
 	uint32_t version;
 	varint_t in_count;
-	struct tx_in *in;
+	struct tx_input **in;
 	varint_t out_count;
-	struct txt_out *out;
+	struct tx_output **out;
 	uint32_t locktime;
 };
+struct block_msg {
+	struct block_hdr hdr;
+	struct tx_msg txns[];
+};
+#define BLOCK_MSG_MIN_LEN BLOCK_HDR_MIN_LEN
 
 /*
  * Can hold any Bitcoin protocol message.
