@@ -29,6 +29,7 @@
 #define MAINNET_START ((const uint8_t[]){ 0xf9, 0xbe, 0xb4, 0xd9 })
 #define MAINNET_PORT 8333
 #define NODE_NETWORK 0x01
+#define HASH_LEN 32
 
 typedef uint64_t varint_t;
 
@@ -185,6 +186,7 @@ struct tx_output {
 // ----------------------------------
 struct tx_msg {
 	uint32_t version;
+	uint8_t id[32];
 	varint_t in_count;
 	struct tx_input **in;
 	varint_t out_count;
@@ -466,6 +468,8 @@ int read_message(int fd, enum msg_types *type, union message **msg);
 int read_block_msg(int fd, struct block_msg **out);
 
 void calc_block_hdr_hash(const struct block_hdr *hdr, uint8_t *out /*[32]*/);
+
+void calc_merkle_root(const struct block_msg *block, uint8_t *out);
 
 void free_block_msg(struct block_msg *block);
 

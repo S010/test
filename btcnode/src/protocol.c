@@ -113,6 +113,53 @@ calc_inv_msg_len(const struct inv_msg *msg)
 	return size;
 }
 
+void
+calc_merkle_root(const struct block_msg *block, uint8_t *out /*[SHA256_DIGEST_LENGTH]*/)
+{
+	if (block->hdr.tx_count == 1) {
+		memcpy(out, block->tx[0].id, SHA256_DIGEST_LENGTH);
+		return;
+	}
+
+	uint64_t num_next = 0;
+	uint64_t num_prev = block->hdr.tx_count;
+	uint8_t *next_level = NULL;
+	uint8_t *prev_level = NULL;
+
+	for (unsigned height = 0; num_next != 1; ++height) {
+		if (height == 0) {
+			// Prepopulate previous level with transaction IDs (i.e. transaction double-hashes).
+			num_prev = block->hdr.tx_count + (block->hdr.tx_count & 1);
+			prev_level = xrealloc(prev_level, num_prev * SHA256_DIGEST_LENGTH);
+			for (uint64_t i = 0; i < num_prev; ++i) {
+				uint64_t index = i;
+				if (index == block->hdr.tx_count)
+					index = block->hdr.tx_count - 1;
+				memcpy(prev_level + i * SHA256_DIGEST_LENGTH, block->tx[index].id, SHA256_DIGEST_LENGTH);
+			}
+			continue;
+		}
+
+		num_next = num_prev / 2; // Next level will contain twice less hashes...
+		if (num_next != 1)
+			num_next += num_next & 1; // We'll need to duplicate a hash if the number of hashes for next level is odd...
+		next_level = xrealloc(next_level, (num_next + (num_next & 1)) * SHA256_DIGEST_LENGTH);
+		for (uint64_t i = 0; i < num_prev; i += 2) {
+			SHA256(prev_level + i * SHA256_DIGEST_LENGTH, 2 * SHA256_DIGEST_LENGTH, next_level + (i / 2) * SHA256_DIGEST_LENGTH);
+		}
+		if (num_next != 1 && (num_prev & 1)) {
+			memcpy(next_level + (num_next - 1) * SHA256_DIGEST_LENGTH, next_level + (num_next - 2) * SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
+		}
+		free(prev_level);
+		prev_level = next_level;
+		num_prev = num_next;
+		next_level = NULL;
+	}
+
+	memcpy(out, prev_level, SHA256_DIGEST_LENGTH);
+	free(prev_level);
+}
+
 static int
 fill_msg_hdr(
     const uint8_t *start,
@@ -715,6 +762,7 @@ unmarshal_tx_msg(const uint8_t *in, struct tx_msg *tx)
 		off += unmarshal_tx_output(in + off, &tx->out[i]);
 	}
 	off += unmarshal(in + off, &tx->locktime);
+	calc_double_hash(in, off, tx->id);
 	return 0;
 }
 

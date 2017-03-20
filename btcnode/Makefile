@@ -24,7 +24,7 @@ bin/btcnode: src/main.o src/protocol.o src/peer.o src/util.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 test: bin/btcnode
-	./bin/btcnode
+	./bin/btcnode 2>&1 | tee out.txt
 
 clean:
 	rm -rf src/*.o bin btcnode.out

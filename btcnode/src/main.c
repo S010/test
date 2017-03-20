@@ -110,7 +110,7 @@ handle_headers_message(struct peer *peer, union message *msg)
 			}
 		}
 		calc_block_hdr_hash(h, hash);
-		const size_t fetch_block_interval = 100;
+		const size_t fetch_block_interval = 50;
 		if ((i % fetch_block_interval) == 0) {
 			syslog(LOG_DEBUG, "%s: requesting full block #%lu", __func__, i);
 			int error = request_block(peer, hash);
@@ -132,13 +132,23 @@ static int
 handle_block_message(struct peer *peer, union message *msg)
 {
 	struct block_msg *block = &msg->block;
-	uint8_t hash[32];
+	uint8_t hash[HASH_LEN];
+	uint8_t merkle_root[HASH_LEN];
 
 	(void)peer;
 
 	calc_block_hdr_hash(&block->hdr, hash);
+	calc_merkle_root(block, merkle_root);
 
 	syslog(LOG_DEBUG, "%s: block %02x%02x%02x%02x..., %lu txns", __func__, hash[0], hash[1], hash[2], hash[3], block->hdr.tx_count);
+
+	if (memcmp(block->hdr.merkle_root, merkle_root, HASH_LEN) != 0) {
+		syslog(LOG_ERR, "%s:       merkle root mismatch, is %02x%02x%02x%02x..., should be %02x%02x%02x%02x...",
+		    __func__,
+		    block->hdr.merkle_root[0], block->hdr.merkle_root[1], block->hdr.merkle_root[2], block->hdr.merkle_root[3],
+		    merkle_root[0], merkle_root[1], merkle_root[2], merkle_root[3]);
+	}
+
 	for (size_t i = 0; i < block->hdr.tx_count; ++i) {
 		struct tx_msg *tx = &block->tx[i];
 		syslog(LOG_DEBUG, "%s:       tx #%lu: ver %u, %lu in, %lu out, locktime %u", __func__, i, tx->version, tx->in_count, tx->out_count, tx->locktime);
