@@ -24,3 +24,26 @@ hexdump(const void *ptr, size_t size)
 		putchar('\n');
 	fflush(stdout);
 }
+
+char *
+strhash(const uint8_t *hash /*[32]*/, char *out /*[64+1]*/)
+{
+	static char buf[64 + 1];
+	char *result;
+
+	if (out == NULL)
+		out = buf;
+
+	result = out;
+
+	char hex[] = "0123456789abcdef";
+	for (int i = 0; i < 32; ++i) {
+		*out++ = hex[*hash >> 4];
+		*out++ = hex[*hash & 0xf];
+		hash++;
+	}
+	*out++ = '\0';
+
+	return result;
+}
+

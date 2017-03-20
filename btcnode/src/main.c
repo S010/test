@@ -36,6 +36,7 @@
 #include "protocol.h"
 #include "peer.h"
 #include "xmalloc.h"
+#include "util.h"
 
 static int
 request_headers(int fd)
@@ -110,7 +111,7 @@ handle_headers_message(struct peer *peer, union message *msg)
 			}
 		}
 		calc_block_hdr_hash(h, hash);
-		const size_t fetch_block_interval = 50;
+		const size_t fetch_block_interval = 1;
 		if ((i % fetch_block_interval) == 0) {
 			syslog(LOG_DEBUG, "%s: requesting full block #%lu", __func__, i);
 			int error = request_block(peer, hash);
@@ -133,6 +134,7 @@ handle_block_message(struct peer *peer, union message *msg)
 {
 	struct block_msg *block = &msg->block;
 	uint8_t hash[HASH_LEN];
+	char hash_str[HASH_LEN * 2 + 1];
 	uint8_t merkle_root[HASH_LEN];
 
 	(void)peer;
@@ -141,6 +143,8 @@ handle_block_message(struct peer *peer, union message *msg)
 	calc_merkle_root(block, merkle_root);
 
 	syslog(LOG_DEBUG, "%s: block %02x%02x%02x%02x..., %lu txns", __func__, hash[0], hash[1], hash[2], hash[3], block->hdr.tx_count);
+	syslog(LOG_DEBUG, "%s:       Merkle tree root: %s", __func__, strhash(block->hdr.merkle_root, hash_str));
+	syslog(LOG_DEBUG, "%s        calculated Merkle tree root: %s", __func__, strhash(merkle_root, hash_str));
 
 	if (memcmp(block->hdr.merkle_root, merkle_root, HASH_LEN) != 0) {
 		syslog(LOG_ERR, "%s:       merkle root mismatch, is %02x%02x%02x%02x..., should be %02x%02x%02x%02x...",

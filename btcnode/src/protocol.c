@@ -126,16 +126,21 @@ calc_merkle_root(const struct block_msg *block, uint8_t *out /*[SHA256_DIGEST_LE
 	uint8_t *next_level = NULL;
 	uint8_t *prev_level = NULL;
 
+	char hash_str[HASH_LEN * 2 + 1];
+
 	for (unsigned height = 0; num_next != 1; ++height) {
+		syslog(LOG_DEBUG, "%s: height %u", __func__, height);
 		if (height == 0) {
 			// Prepopulate previous level with transaction IDs (i.e. transaction double-hashes).
 			num_prev = block->hdr.tx_count + (block->hdr.tx_count & 1);
 			prev_level = xrealloc(prev_level, num_prev * SHA256_DIGEST_LENGTH);
+			syslog(LOG_DEBUG, "%s: prepopulating prev_level with %lu TXIDs", __func__, num_prev);
 			for (uint64_t i = 0; i < num_prev; ++i) {
 				uint64_t index = i;
 				if (index == block->hdr.tx_count)
 					index = block->hdr.tx_count - 1;
 				memcpy(prev_level + i * SHA256_DIGEST_LENGTH, block->tx[index].id, SHA256_DIGEST_LENGTH);
+				syslog(LOG_DEBUG, "%s: prev_level[%lu] <- tx[%lu].id{ %s }", __func__, i, index, strhash(block->tx[index].id, hash_str));
 			}
 			continue;
 		}
@@ -143,11 +148,17 @@ calc_merkle_root(const struct block_msg *block, uint8_t *out /*[SHA256_DIGEST_LE
 		num_next = num_prev / 2; // Next level will contain twice less hashes...
 		if (num_next != 1)
 			num_next += num_next & 1; // We'll need to duplicate a hash if the number of hashes for next level is odd...
-		next_level = xrealloc(next_level, (num_next + (num_next & 1)) * SHA256_DIGEST_LENGTH);
+		syslog(LOG_DEBUG, "%s: there will be %lu hashes on next level", __func__, num_next);
+		next_level = xrealloc(next_level, num_next * SHA256_DIGEST_LENGTH);
 		for (uint64_t i = 0; i < num_prev; i += 2) {
-			SHA256(prev_level + i * SHA256_DIGEST_LENGTH, 2 * SHA256_DIGEST_LENGTH, next_level + (i / 2) * SHA256_DIGEST_LENGTH);
+			syslog(LOG_DEBUG, "%s: calculating next level combined hash %lu for prev. level pair at index %lu", __func__, i / 2, i);
+			uint8_t *in_ptr = prev_level + i * SHA256_DIGEST_LENGTH;
+			size_t in_len = 2 * SHA256_DIGEST_LENGTH;
+			uint8_t *out_ptr = next_level + (i / 2) * SHA256_DIGEST_LENGTH;
+			calc_double_hash(in_ptr, in_len, out_ptr);
 		}
-		if (num_next != 1 && (num_prev & 1)) {
+		if (num_next != 1 && ((num_prev / 2) & 1)) {
+			syslog(LOG_DEBUG, "%s: padding next level with the last hash since it has odd number of hashes", __func__);
 			memcpy(next_level + (num_next - 1) * SHA256_DIGEST_LENGTH, next_level + (num_next - 2) * SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
 		}
 		free(prev_level);
@@ -763,7 +774,7 @@ unmarshal_tx_msg(const uint8_t *in, struct tx_msg *tx)
 	}
 	off += unmarshal(in + off, &tx->locktime);
 	calc_double_hash(in, off, tx->id);
-	return 0;
+	return off;
 }
 
 int
