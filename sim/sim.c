@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <time.h>
 
 void
@@ -129,8 +130,6 @@ set_baud_rate(int f, speed_t rate)
 {
 	int error;
 	struct termios t;
-	speed_t ispeed;
-	speed_t ospeed;
 
 	error = ioctl(f, TIOCGETA, &t);
 	if (error)
@@ -201,11 +200,102 @@ sleep_for_ms(unsigned ms)
 }
 
 int
+sync_read(int f, void *buf, size_t size, int timeout_ms)
+{
+	ssize_t n;
+	ssize_t off;
+
+	for (n = off = 0; (size_t)off < size; off += n) {
+		struct pollfd pfd = { f, POLLIN, 0 };
+		int rc = poll(&pfd, 1, timeout_ms);
+		if (rc < 0)
+			err(1, "poll");
+		if (rc == 0)
+			break;
+		n = read(f, (uint8_t *)buf + off, size - off);
+		if (n < 0)
+			return off > 0 ? off : n;
+	}
+	return off;
+}
+
+void
+read_decode_atr(int f)
+{
+	const int max_timeout = 1000; /* ms */
+
+	uint8_t ch;
+	uint8_t Y;
+	uint8_t K;
+	uint8_t tck = 0;
+	bool is_tck_present = false;
+
+	#define READ(name, index, ...)								\
+		do { 										\
+			if (sync_read(f, &ch, 1, max_timeout) != 1)				\
+				errx(1, "failed to read " #name "_%d character", index);	\
+			tck ^= ch;								\
+			if (index != 0)								\
+				printf(" " #name "_%d=%02x", index, ch);			\
+			else									\
+				printf(" " #name "=%02x", ch);					\
+			printf(__VA_ARGS__);							\
+		} while (0)
+
+	READ(TS, 0, ": %s convention\n", ch == 0x3b ? "direct" : (ch == 0x3f ? "inverse" : "unknown"));
+	if (ch != 0x3b)
+		errx(1, "unsupported convention");
+	tck ^= ch;
+
+	READ(T0, 0, ": Y_1=%#x, K=%u\n", Y = (ch & 0xf0), K = (ch & 0xf));
+
+	int i = 1;
+	do {
+		if (Y & (1 << 4))
+			READ(TA, i, "\n");
+		if (Y & (1 << 5))
+			READ(TB, i, "\n");
+		if (Y & (1 << 6))
+			READ(TC, i, "\n");
+		if (Y & (1 << 7)) {
+			READ(TD, i, ": Y=%#x, T=%d\n", Y = (ch & 0xf0), ch & 0xf);
+			if ((ch & 0xf) != 0)
+				is_tck_present = true;
+		}
+	} while (i++, Y & (1 << 7));
+
+	for (i = 1; i <= K+1; i++)
+		READ(T, i, "\n");
+
+	if (is_tck_present)
+		READ(TCK, 0, "\n");
+
+	if (tck != 0)
+		errx(1, "TCK check failed");
+
+	#undef READ
+}
+
+void
+dump_atr(int f)
+{
+	uint8_t buf[32];
+	int n;
+	int i;
+
+	n = sync_read(f, buf, 32, 1000);
+	for (i = 0; i < n; ++i)
+		printf("%02X ", buf[i]);
+	putchar('\n');
+}
+
+int
 main(int argc, char **argv)
 {
 	int f;
-	int error;
-	int state;
+
+	(void)argc;
+	(void)argv;
 
 	f = open("/dev/cuaU0", O_RDWR);
 	if (f == -1)
@@ -228,18 +318,8 @@ main(int argc, char **argv)
 	set_line_state(f, TIOCM_DTR);
 
 	write_log("Reading ATR...\n");
-	for (;;) {
-		struct pollfd pfd = { f, POLLIN };
-		int rc = poll(&pfd, 1, INFTIM);
-		if (rc < 0)
-			err(1, "poll");
-		if (rc == 0)
-			continue;
-		uint8_t byte;
-		while (read(f, &byte, 1) > 0)
-			print_byte(byte);
-		putchar('\n');
-	}
+	read_decode_atr(f);
+	//dump_atr(f);
 
 	close(f);
 
