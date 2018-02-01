@@ -219,10 +219,23 @@ sync_read(int f, void *buf, size_t size, int timeout_ms)
 	return off;
 }
 
+const char *
+str_nibble(uint8_t nibble)
+{
+	static char bits[] = "0000";
+
+	bits[0] = '0' + !!(nibble & 8);
+	bits[1] = '0' + !!(nibble & 4);
+	bits[2] = '0' + !!(nibble & 2);
+	bits[3] = '0' + !!(nibble & 1);
+
+	return bits;
+}
+
 void
 read_decode_atr(int f)
 {
-	const int max_timeout = 1000; /* ms */
+	const int max_read_time = 100; /* ms */
 
 	uint8_t ch;
 	uint8_t Y;
@@ -232,7 +245,7 @@ read_decode_atr(int f)
 
 	#define READ(name, index, ...)								\
 		do { 										\
-			if (sync_read(f, &ch, 1, max_timeout) != 1)				\
+			if (sync_read(f, &ch, 1, max_read_time) != 1)				\
 				errx(1, "failed to read " #name "_%d character", index);	\
 			tck ^= ch;								\
 			if (index != 0)								\
@@ -247,10 +260,9 @@ read_decode_atr(int f)
 		errx(1, "unsupported convention");
 	tck ^= ch;
 
-	READ(T0, 0, ": Y_1=%#x, K=%u\n", Y = (ch & 0xf0), K = (ch & 0xf));
+	READ(T0, 0, ": Y_1=0b%s, K=%u\n", str_nibble((Y = (ch & 0xf0)) >> 4), K = (ch & 0xf));
 
-	int i = 1;
-	do {
+	for (int i = 1; Y != 0; i++) {
 		if (Y & (1 << 4))
 			READ(TA, i, "\n");
 		if (Y & (1 << 5))
@@ -258,20 +270,22 @@ read_decode_atr(int f)
 		if (Y & (1 << 6))
 			READ(TC, i, "\n");
 		if (Y & (1 << 7)) {
-			READ(TD, i, ": Y=%#x, T=%d\n", Y = (ch & 0xf0), ch & 0xf);
+			READ(TD, i, ": Y=0b%s, T=%d\n", str_nibble((Y = (ch & 0xf0)) >> 4), ch & 0xf);
 			if ((ch & 0xf) != 0)
 				is_tck_present = true;
+		} else {
+			Y = 0;
 		}
-	} while (i++, Y & (1 << 7));
+	}
 
-	for (i = 1; i <= K+1; i++)
+	for (int i = 1; i <= K; i++)
 		READ(T, i, "\n");
 
-	if (is_tck_present)
+	if (is_tck_present) {
 		READ(TCK, 0, "\n");
-
-	if (tck != 0)
-		errx(1, "TCK check failed");
+		if (tck != 0)
+			errx(1, "TCK check failed");
+	}
 
 	#undef READ
 }
@@ -317,7 +331,7 @@ main(int argc, char **argv)
 	flush_queues(f);
 	set_line_state(f, TIOCM_DTR);
 
-	write_log("Reading ATR...\n");
+	write_log("Reading ICC's Answer To Reset (ATR)...\n");
 	read_decode_atr(f);
 	//dump_atr(f);
 
