@@ -1,4 +1,4 @@
-CFLAGS = -Wall -O2 -Wextra -std=c99
+CFLAGS = -Wall -O2 -Wextra -std=c99 -D_DEFAULT_SOURCE -D_BSD_SOURCE
 
 .PHONY: all clean
 

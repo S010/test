@@ -23,18 +23,6 @@ write_log(const char *fmt, ...)
 }
 
 const char *
-str_ldisc(int ldisc)
-{
-	switch (ldisc) {
-	case TTYDISC: return "TTYDISC";
-	case PPPDISC: return "PPPDISC";
-	case NMEADISC: return "NMEADISC";
-	case MSTSDISC: return "MSTSDISC";
-	}
-	return "(none)";
-}
-
-const char *
 str_state(int state)
 {
 	#define Y(x) if (state & x) { return #x; }
@@ -61,18 +49,6 @@ print_line_state(int f)
 	if (error)
 		err(1, "ioctl TIOCMGET");
 	write_log("Line state: %s (0x%x)\n", str_state(state), (unsigned)state);
-}
-
-void
-print_line_disc(int f)
-{
-	int error;
-	int ldisc;
-
-	error = ioctl(f, TIOCGETD, &ldisc);
-	if (error)
-		err(1, "ioctl TIOCGETD");
-	write_log("Line discipline: %s (%d)\n", str_ldisc(ldisc), ldisc);
 }
 
 void
@@ -131,9 +107,9 @@ set_baud_rate(int f, speed_t rate)
 	int error;
 	struct termios t;
 
-	error = ioctl(f, TIOCGETA, &t);
+	error = tcgetattr(f, &t);
 	if (error)
-		err(1, "ioctl TIOCGETA");
+		err(1, "tcgetattr");
 	cfsetspeed(&t, rate);
 	print_baud_rate(f);
 }
@@ -177,9 +153,8 @@ void
 flush_queues(int f)
 {
 	int error;
-	const int what = FREAD | FWRITE;
 
-	error = ioctl(f, TIOCFLUSH, &what);
+	error = tcflush(f, TCIOFLUSH);
 	if (error)
 		err(1, "ioctl TIOCFLUSH");
 }
@@ -210,8 +185,10 @@ sync_read(int f, void *buf, size_t size, int timeout_ms)
 		int rc = poll(&pfd, 1, timeout_ms);
 		if (rc < 0)
 			err(1, "poll");
-		if (rc == 0)
+		if (rc == 0) {
+			warnx("%s: poll timeout", __func__);
 			break;
+		}
 		n = read(f, (uint8_t *)buf + off, size - off);
 		if (n < 0)
 			return off > 0 ? off : n;
@@ -308,27 +285,30 @@ main(int argc, char **argv)
 {
 	int f;
 
-	(void)argc;
-	(void)argv;
+	if (argc < 2) {
+		printf("usage: uicc /path/to/tty/device/node\n");
+		exit(1);
+	}
 
-	f = open("/dev/cuaU0", O_RDWR);
+	f = open(argv[1], O_RDWR);
 	if (f == -1)
 		err(1, "open");
 	write_log("Opened device node.\n");
 
-	print_line_disc(f);
 	print_line_state(f);
 	print_baud_rate(f);
 
 	write_log("Configuring serial line...\n");
-	set_nonblock(f);
 	set_raw_io(f);
+	set_nonblock(f);
 	set_baud_rate(f, B9600);
 
 	write_log("Resetting ICC...\n");
+	write_log("Clearing DTR...\n");
 	clear_line_state(f, TIOCM_DTR);
 	sleep_for_ms(200);
 	flush_queues(f);
+	write_log("Setting DTR...\n");
 	set_line_state(f, TIOCM_DTR);
 
 	write_log("Reading ICC's Answer To Reset (ATR)...\n");
