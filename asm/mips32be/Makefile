@@ -14,7 +14,7 @@ exit2: exit2.s
 	mips gcc -nostdlib -o $@ $^
 
 hello: hello.s
-	mips gcc -nostdlib -o $@ $^
+	mips gcc --disable-shared -nostdlib -o $@ $^
 
 clean:
 	rm -f $(PROGRAMS) *.o
