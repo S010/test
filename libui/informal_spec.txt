@@ -1,0 +1,19 @@
+Approximate workflow with the library:
+you create widgets
+you can pack widgets into windows and {h,v}boxes
+ some widgets can be packed into others as well if it makes sense
+  (list items into listbox?)
+one can create as many windows as he wants
+once a widget has been packed into one window, it can then be packed
+ into another and it will move to that window without any additional help
+widgets are controlled through properties.
+you can set and get properties
+properties are settable and gettable even if widget has never been
+ packed anywhere before
+all text returned from the library and sent into library is encoded in UTF-8
+when packing into a window it acts as a vbox
+boxes have properties padding, which is an inside invisible border, and spacing,
+ the space between packed child widgets
+each widget has a expand and fill property, expand means the widget will eat all
+ the space available to it, fill means widget will also actually become as large
+ as the space available to it

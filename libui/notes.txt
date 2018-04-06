@@ -1,0 +1,34 @@
+needed properties:
+[UI_X]
+[UI_Y]
+UI_WIDTH
+UI_HEIGHT
+UI_EXPAND
+
+UI_VBOX
+  expands horizontally
+  UI_EXPAND==1 means expand vertically
+
+UI_HBOX
+  expands vertically
+  UI_EXPAND==1 means expand horizontally
+
+UI_WINDOW acts as a VBOX
+
+
+
+UI_WINDOW
+    UI_HBOX [UI_EXPAND=1]
+        UI_LABEL
+        UI_BUTTON [UI_EXPAND=1]
+    UI_HBOX
+        UI_BUTTON
+        UI_BUTTON
+
+Behaviour:
+window is equivalent to vbox
+1st hbox expands vertically and horizontally
+ label takes only as much space as is neccessary
+ button takes up all the space that's left
+2nd hbox expands vertically
+ buttons take only as much space as is neccessary
