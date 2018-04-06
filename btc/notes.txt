@@ -1,0 +1,44 @@
+Block height - the ordinal number of a block, due to potential blockchain forks
+cannot be used as a unique identifier of a block, block header's hash can be
+used for this purpose.
+
+Coinbase transaction - the initial transaction in a block which collects the
+mining reward and the transaction fees and spends them.
+
+UTXO - unspent transaction output.
+
+Transaction identifier (TXID) - hash of transaction's rawtransaction
+representation.
+
+
+A P2P network peer
+
+struct peer_buf {
+	uint8_t *ptr; // pointer to data
+	size_t len; // length of data it contains
+	size_t size; // size of the buffer pointer to by ptr
+};
+
+struct peer {
+	state // current state of our connection with them
+	address // their address
+	version // the version message we received
+	buffer // incoming message buffer
+	next // pointer to next peer
+};
+
+Hash tree:
+    [x]
+  [x]  [x]
+[x][x][x][x]
+
+a0 = 4
+
+aN = a0 * (1/2)^N
+ln(aN) = ln(a0 * (1/2)^N)
+ln(aN) = ln(a0) + ln((1/2)^N)
+ln(aN) = ln(a0) + N * ln((1/2))
+ln(aN) - ln(a0) = N * ln(1/2)
+N = ( ln(aN) - ln(a0) ) / ln(1/2)
+
+
