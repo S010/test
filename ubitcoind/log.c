@@ -18,14 +18,14 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+#include "cfg.h"
 #include "log.h"
 
-bool g_verbose = false;
 FILE *g_log_stream = NULL;
 
 void log_debug(const char *fmt, ...)
 {
-	if (!g_verbose) {
+	if (!g_cfg.ubitcoind.verbose) {
 		return;
 	}
 	va_list ap;

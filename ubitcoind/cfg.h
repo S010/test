@@ -14,16 +14,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef UBITCOIND_LOG_H
-#define UBITCOIND_LOG_H
+#ifndef UBITCOIND_CFG_H
+#define UBITCOIND_CFG_H
 
-#include <stdio.h>
 #include <stdbool.h>
 
-extern FILE *g_log_stream;
+struct cfg {
+	struct {
+		bool verbose;
+	} ubitcoind;
+	struct {
+		int target;
+	} peers;
+	struct {
+		bool disable;
+	} ipv6;
+};
+extern struct cfg g_cfg;
 
-void log_debug(const char *fmt, ...);
-void log_warning(const char *fmt, ...);
-void log_error(const char *fmt, ...);
+void merge_cfg(const char *path);
 
 #endif

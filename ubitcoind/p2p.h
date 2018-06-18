@@ -59,7 +59,6 @@ extern uint64_t g_conn_count;
 extern uint64_t g_max_conn;
 extern void *g_known_ip_addr_tree;
 extern uint64_t g_my_nonce;
-extern bool g_no_ipv6;
 
 struct peer *new_peer(int family, const void *sa);
 const char *str_peer(struct peer *peer);

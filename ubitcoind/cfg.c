@@ -14,16 +14,45 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef UBITCOIND_LOG_H
-#define UBITCOIND_LOG_H
-
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
-extern FILE *g_log_stream;
+#include "cfg.h"
+#include "log.h"
 
-void log_debug(const char *fmt, ...);
-void log_warning(const char *fmt, ...);
-void log_error(const char *fmt, ...);
+struct cfg g_cfg = {
+	.ubitcoind.verbose = 0,
+	.peers.target = 100,
+	.ipv6.disable = 0,
+};
 
-#endif
+void merge_cfg(const char *path)
+{
+	FILE *f;
+
+	f = fopen(path, "r");
+	if (f == NULL) {
+		return;
+	}
+
+	char key[128];
+	int val;
+	int n;
+	while ((n = fscanf(f, "%127s = %d", key, &val)) != EOF) {
+		if (n != 2)
+			continue;
+		if (!strcmp(key, "ubitcoind.verbose")) {
+			g_cfg.ubitcoind.verbose = val;
+		} else if (!strcmp(key, "peers.target")) {
+			g_cfg.peers.target = val;
+		} else if (!strcmp(key, "ipv6.disable")) {
+			g_cfg.ipv6.disable = val;
+		} else {
+			log_warning("%s: unrecognized configuration option '%s'", path, key);
+		}
+	}
+
+	(void)fclose(f);
+}

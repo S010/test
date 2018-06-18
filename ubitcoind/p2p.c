@@ -35,6 +35,7 @@
 #include <limits.h>
 #include <search.h>
 
+#include "cfg.h"
 #include "protocol.h"
 #include "pack.h"
 #include "p2p.h"
@@ -47,7 +48,6 @@ void *g_known_ip_addr_tree;
 struct connect_queue_list g_connect_queue = STAILQ_HEAD_INITIALIZER(g_connect_queue);
 struct connection_list g_connections = TAILQ_HEAD_INITIALIZER(g_connections);
 uint64_t g_my_nonce;
-bool g_no_ipv6 = false;
 
 bool is_ipv4_mapped(const void *a)
 {
@@ -491,7 +491,7 @@ bool handle_pollin(struct peer *peer)
 				addr_ptr = &sin;
 				// FIXME Change new_peer() interface so we don't have to do this.
 				memcpy(&sin.sin_addr, (uint8_t *)&rec.ip + 12, 4);
-			} else if (g_no_ipv6) {
+			} else if (g_cfg.ipv6.disable) {
 				continue;
 			} else {
 				addr_family = AF_INET6;

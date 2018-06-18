@@ -35,6 +35,7 @@
 #include <limits.h>
 #include <search.h>
 
+#include "cfg.h"
 #include "protocol.h"
 #include "pack.h"
 #include "p2p.h"
@@ -105,28 +106,6 @@ void set_max_conn(void)
 	}
 }
 
-void sighandler(int sig)
-{
-	(void)sig;
-	g_quit = true;
-}
-
-void set_sigmask(sigset_t *sigmask)
-{
-	if (sigemptyset(sigmask) == -1) {
-		log_error("sigemptyset: errno %d", errno);
-		exit(EXIT_FAILURE);
-	}
-	if (sigaddset(sigmask, SIGINT) == -1) {
-		log_error("sigaddset: errno %d", errno);
-		exit(EXIT_FAILURE);
-	}
-	if (sigaddset(sigmask, SIGTERM) == -1) {
-		log_error("sigaddset: errno %d", errno);
-		exit(EXIT_FAILURE);
-	}
-}
-
 bool handle_epoll_event(struct epoll_event *ev)
 {
 	struct peer *peer;
@@ -160,7 +139,6 @@ bool handle_epoll_event(struct epoll_event *ev)
 
 void mainloop(void)
 {
-	sigset_t sigmask;
 	struct epoll_event events[MAX_EPOLL_EVENTS];
 	int num_events;
 	int timeout;
@@ -179,8 +157,7 @@ void mainloop(void)
 			timeout = -1;
 		}
 
-		set_sigmask(&sigmask);
-		num_events = epoll_pwait(g_epoll_fd, events, MAX_EPOLL_EVENTS, timeout, &sigmask);
+		num_events = epoll_wait(g_epoll_fd, events, MAX_EPOLL_EVENTS, timeout);
 		if (num_events < 0) {
 			if (errno == EINTR) {
 				log_debug("interrupted");
@@ -246,7 +223,7 @@ void get_initial_peers(void)
 				memset((uint8_t *)&addr + 10, 0xff, 2);
 				memcpy((uint8_t *)&addr + 12, &sin->sin_addr, 4);
 			} else if (ai->ai_family == AF_INET6) {
-				if (g_no_ipv6) {
+				if (g_cfg.ipv6.disable) {
 					continue;
 				}
 				struct sockaddr_in6 *sin6 = (void *)ai->ai_addr;
@@ -268,11 +245,6 @@ void get_initial_peers(void)
 void init_program(void)
 {
 	g_log_stream = stdout;
-
-	if (signal(SIGINT, sighandler) == SIG_ERR || signal(SIGTERM, sighandler) == SIG_ERR) {
-		log_error("signal: errno %d", errno);
-		exit(EXIT_FAILURE);
-	}
 
 	srand(time(NULL));
 	g_my_nonce = ((uint64_t)rand() << 32) | (uint64_t)rand();
@@ -299,9 +271,9 @@ void parse_args(int argc, char **argv)
 			print_usage();
 			exit(EXIT_SUCCESS);
 		} else if (strcmp(*argv, "--noipv6") == 0) {
-			g_no_ipv6 = true;
+			g_cfg.ipv6.disable = true;
 		} else if (strcmp(*argv, "--verbose") == 0) {
-			g_verbose = true;
+			g_cfg.ubitcoind.verbose = true;
 		} else {
 			print_usage();
 			exit(EXIT_FAILURE);
@@ -311,8 +283,10 @@ void parse_args(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-	parse_args(argc, argv);
 	init_program();
+	merge_cfg("/etc/ubitcoind.cfg");
+	merge_cfg("./ubitcoind.cfg");
+	parse_args(argc, argv);
 	get_initial_peers();
 	set_max_conn();
 	mainloop();
