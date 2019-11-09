@@ -2,14 +2,14 @@ const TIME_SCALE = 1.0;
 
 var clock = new THREE.Clock()
 var scene = new THREE.Scene();
-var camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 var renderer = new THREE.WebGLRenderer();
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.physicallyCorrectLights = true;
 document.body.appendChild(renderer.domElement);
 
-camera.position.z = 4;
+camera.position.z = 5;
 camera.lookAt(0, 0, 0);
 
 var light = new THREE.HemisphereLight(0xffffbb, 0x080820, 10);
@@ -36,13 +36,13 @@ function main_loop() {
 
 	var cosine = Math.cos(2*Math.PI*t*TIME_SCALE);
 
-	cube.position.x = sin(t*0.2) * 2;
-	cube.position.y = cos(t*0.3) * sin(t*0.15) * 2;
-	cube.position.z = sin(t*0.22) * cos(t*0.23) * 1;
+	cube.position.x = sin(t*0.3) * 4;
+	cube.position.y = sin(t*0.2) * sin(t*0.2) * 2;
+	cube.position.z = sin(t*0.22) * cos(t*0.23) * 2;
 
-	cube.rotateX(td*0.02);
-	cube.rotateY(td*0.2);
-	cube.rotateZ(td*0.3);
+	cube.rotateX(sin(t*0.02)*td);
+	cube.rotateY(cos(t*0.2)*td);
+	cube.rotateZ(sin(t*0.1)*td);
 
 	requestAnimationFrame(main_loop);
 	renderer.render(scene, camera);
